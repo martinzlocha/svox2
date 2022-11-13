@@ -3,3 +3,5 @@ __pycache__/
 *$py.class
 Session.vim
 ckpt/
+venv/
+oryx-build-commands.txt

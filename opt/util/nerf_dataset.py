@@ -5,12 +5,24 @@ import torch
 import torch.nn.functional as F
 from typing import NamedTuple, Optional, Union
 from os import path
+from functools import partial
 import imageio
 from tqdm import tqdm
 import cv2
 import json
 import numpy as np
+import concurrent.futures
 
+
+def load_image(fpath, scale=1):
+    im_gt = imageio.imread(fpath)
+
+    if scale < 1.0:
+        full_size = list(im_gt.shape[:2])
+        rsz_h, rsz_w = [round(hw * scale) for hw in full_size]
+        im_gt = cv2.resize(im_gt, (rsz_w, rsz_h), interpolation=cv2.INTER_AREA)
+    
+    return torch.from_numpy(im_gt)
 
 class NeRFDataset(DatasetBase):
     """
@@ -64,19 +76,15 @@ class NeRFDataset(DatasetBase):
         # OpenGL -> OpenCV
         cam_trans = torch.diag(torch.tensor([1, -1, -1, 1], dtype=torch.float32))
 
+        paths = map(lambda frame: path.join(data_path, path.basename(frame["file_path"]) + ".jpg"), j["frames"])
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            all_gt = list(tqdm(executor.map(partial(load_image, scale=scale), paths), total=len(j["frames"])))
+
         for frame in tqdm(j["frames"]):
-            fpath = path.join(data_path, path.basename(frame["file_path"]) + ".jpg")
             c2w = torch.tensor(frame["transform_matrix"], dtype=torch.float32)
             c2w = c2w @ cam_trans  # To OpenCV
-
-            im_gt = imageio.imread(fpath)
-            if scale < 1.0:
-                full_size = list(im_gt.shape[:2])
-                rsz_h, rsz_w = [round(hw * scale) for hw in full_size]
-                im_gt = cv2.resize(im_gt, (rsz_w, rsz_h), interpolation=cv2.INTER_AREA)
-
             all_c2w.append(c2w)
-            all_gt.append(torch.from_numpy(im_gt))
+
         focal = float(
             0.5 * all_gt[0].shape[1] / np.tan(0.5 * j["camera_angle_x"])
         )
