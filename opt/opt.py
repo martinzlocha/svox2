@@ -452,7 +452,7 @@ while True:
                         for sphfunc in sphfuncs]
                 sphfuncs_cmapped = [viridis_cmap(sphfunc) for sphfunc in sphfuncs]
                 for im, (minv, meanv, maxv) in zip(sphfuncs_cmapped, stats):
-                    cv2.putText(im, f"{minv=:.4f} {meanv=:.4f} {maxv=:.4f}", (10, 20),
+                    cv2.putText(im, f"{minv:.4f} {meanv:.4f} {maxv:.4f}", (10, 20),
                                 0, 0.5, [255, 0, 0])
                 sphfuncs_cmapped = np.concatenate(sphfuncs_cmapped, axis=0)
                 summary_writer.add_image(f'test/spheric',
