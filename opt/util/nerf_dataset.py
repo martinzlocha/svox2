@@ -55,8 +55,6 @@ class NeRFDataset(DatasetBase):
         super().__init__()
         assert path.isdir(root), f"'{root}' is not a directory"
 
-        if scene_scale is None:
-            scene_scale = 2/3
         if scale is None:
             scale = 1.0
         self.device = device
@@ -69,7 +67,7 @@ class NeRFDataset(DatasetBase):
         data_path = path.join(root, split_name)
         data_json = path.join(root, "transforms_" + split_name + ".json")
 
-        print("LOAD DATA", data_path)
+        print("MODIFIED LOAD DATA", data_path)
 
         j = json.load(open(data_json, "r"))
 
@@ -89,7 +87,15 @@ class NeRFDataset(DatasetBase):
             0.5 * all_gt[0].shape[1] / np.tan(0.5 * j["camera_angle_x"])
         )
         self.c2w = torch.stack(all_c2w)
+
+        for axis in [0, 1, 2]:
+            min_y = np.min(self.c2w[:, axis, 3])
+            max_y = np.min(self.c2w[:, axis, 3])
+            self.c2w[:, axis, 3] -= (min_y + max_y) / 2
+
+        scene_scale = 1 / (np.max(self.c2w[:, :3, 3]) + 0.5)
         self.c2w[:, :3, 3] *= scene_scale
+        print(f'Scene scale: {scene_scale}')
 
         self.gt = torch.stack(all_gt).float() / 255.0
         if self.gt.size(-1) == 4:
