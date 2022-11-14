@@ -5,3 +5,7 @@ Session.vim
 ckpt/
 venv/
 oryx-build-commands.txt
+
+**.eggs
+build/
+svox2.*
