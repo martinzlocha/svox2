@@ -61,11 +61,19 @@ class DatasetBase:
             gt = gt.reshape(self.n_images, -1, 3)
         else:
             gt = self.gt.reshape(self.n_images, -1, 3)
+
         origins = self.c2w[:, None, :3, 3].expand(-1, self.h * self.w, -1).contiguous()
         if self.split == "train":
             origins = origins.view(-1, 3)
             dirs = dirs.view(-1, 3)
             gt = gt.reshape(-1, 3)
+
+        # adjust origins based on the depth
+        if hasattr(self, "depths"):
+            depths = self.depths.reshape(-1, 1)
+            avg_depth = torch.mean(depths)
+            print("shifting origins. avg depth = ", avg_depth)
+            origins = origins + dirs * (depths - 0.2)
 
         self.rays_init = Rays(origins=origins, dirs=dirs, gt=gt)
         self.rays = self.rays_init

@@ -12,6 +12,9 @@ import cv2
 import json
 import numpy as np
 import concurrent.futures
+import os
+
+os.environ["OPENCV_IO_ENABLE_OPENEXR"]="1"
 
 
 def load_image(fpath, scale=1):
@@ -21,8 +24,19 @@ def load_image(fpath, scale=1):
         full_size = list(im_gt.shape[:2])
         rsz_h, rsz_w = [round(hw * scale) for hw in full_size]
         im_gt = cv2.resize(im_gt, (rsz_w, rsz_h), interpolation=cv2.INTER_AREA)
-    
+
     return torch.from_numpy(im_gt)
+
+def load_depth_file(fpath, width, height) -> torch.Tensor:
+    if not path.isfile(fpath):
+        return torch.zeros(height, width)
+
+    img = cv2.imread(fpath, cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
+    depth = img[:,:,2]
+    depth = cv2.resize(depth, (width, height), interpolation=cv2.INTER_NEAREST)
+
+    return torch.from_numpy(depth)
+
 
 class NeRFDataset(DatasetBase):
     """
@@ -50,6 +64,7 @@ class NeRFDataset(DatasetBase):
         permutation: bool = True,
         white_bkgd: bool = True,
         n_images = None,
+        use_depth: bool = False,
         **kwargs
     ):
         super().__init__()
@@ -66,6 +81,7 @@ class NeRFDataset(DatasetBase):
         split_name = split if split != "test_train" else "train"
         data_path = path.join(root, split_name)
         data_json = path.join(root, "transforms_" + split_name + ".json")
+        depth_data_path = path.join(root, "depth")
 
         print("MODIFIED LOAD DATA", data_path)
 
@@ -77,6 +93,7 @@ class NeRFDataset(DatasetBase):
         paths = map(lambda frame: path.join(data_path, path.basename(frame["file_path"]) + ".jpg"), j["frames"])
         with concurrent.futures.ThreadPoolExecutor() as executor:
             all_gt = list(tqdm(executor.map(partial(load_image, scale=scale), paths), total=len(j["frames"])))
+
 
         for frame in tqdm(j["frames"]):
             c2w = torch.tensor(frame["transform_matrix"], dtype=torch.float32)
@@ -118,6 +135,14 @@ class NeRFDataset(DatasetBase):
         self.intrins_full : Intrin = Intrin(focal, focal,
                                             self.w_full * 0.5,
                                             self.h_full * 0.5)
+
+        depth_paths = map(lambda frame: path.join(depth_data_path, path.basename(frame["file_path"]) + ".exr"), j["frames"])
+
+        if use_depth:
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                depths = list(tqdm(executor.map(partial(load_depth_file, width=self.w_full, height=self.h_full), depth_paths), total=len(j["frames"])))
+
+            self.depths = torch.stack(depths).float() * scene_scale
 
         self.split = split
         self.scene_scale = scene_scale
