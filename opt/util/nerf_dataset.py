@@ -59,6 +59,9 @@ class NeRFDataset(DatasetBase):
         epoch_size : Optional[int] = None,
         device: Union[str, torch.device] = "cpu",
         scene_scale: Optional[float] = None,
+        scene_x_translate: float = 0,
+        scene_y_translate: float = 0,
+        scene_z_translate: float = 0,
         factor: int = 1,
         scale : Optional[float] = None,
         permutation: bool = True,
@@ -105,14 +108,12 @@ class NeRFDataset(DatasetBase):
         )
         self.c2w = torch.stack(all_c2w)
 
-        for axis in [0, 1, 2]:
-            min_v = torch.min(self.c2w[:, axis, 3])
-            max_v = torch.max(self.c2w[:, axis, 3])
-            self.c2w[:, axis, 3] -= (min_v + max_v) / 2
-
-        scene_scale = 1 / (torch.max(self.c2w[:, :3, 3]) + 0.5)
+        self.c2w[:, :3, 3] += torch.tensor([scene_x_translate, scene_y_translate, scene_z_translate])
         self.c2w[:, :3, 3] *= scene_scale
         print(f'Scene scale: {scene_scale}')
+        print(f'Scene bounds X: {torch.min(self.c2w[:, 0, 3])} - {torch.max(self.c2w[:, 0, 3])}')
+        print(f'Scene bounds Y: {torch.min(self.c2w[:, 1, 3])} - {torch.max(self.c2w[:, 1, 3])}')
+        print(f'Scene bounds Z: {torch.min(self.c2w[:, 2, 3])} - {torch.max(self.c2w[:, 2, 3])}')
 
         self.gt = torch.stack(all_gt).float() / 255.0
         if self.gt.size(-1) == 4:

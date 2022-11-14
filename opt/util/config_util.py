@@ -21,6 +21,18 @@ def define_common_args(parser : argparse.ArgumentParser):
                          type=float,
                          default=None,
                          help="Global scene scaling (or use dataset default)")
+    group.add_argument('--scene_x_translate',
+                         type=float,
+                         default=0,
+                         help="Global scene translation along the x-axis")
+    group.add_argument('--scene_y_translate',
+                         type=float,
+                         default=0,
+                         help="Global scene translation along the y-axis")
+    group.add_argument('--scene_z_translate',
+                         type=float,
+                         default=0,
+                         help="Global scene translation along the z-axis")
     group.add_argument('--scale',
                          type=float,
                          default=None,
@@ -119,6 +131,9 @@ def build_data_options(args):
         'seq_id': args.seq_id,
         'epoch_size': args.epoch_size * args.__dict__.get('batch_size', 5000),
         'scene_scale': args.scene_scale,
+        'scene_x_translate': args.scene_x_translate,
+        'scene_y_translate': args.scene_y_translate,
+        'scene_z_translate': args.scene_z_translate,
         'scale': args.scale,
         'white_bkgd': args.white_bkgd,
         'hold_every': args.llffhold,
