@@ -89,9 +89,9 @@ class NeRFDataset(DatasetBase):
         self.c2w = torch.stack(all_c2w)
 
         for axis in [0, 1, 2]:
-            min_y = torch.min(self.c2w[:, axis, 3])
-            max_y = torch.min(self.c2w[:, axis, 3])
-            self.c2w[:, axis, 3] -= (min_y + max_y) / 2
+            min_v = torch.min(self.c2w[:, axis, 3])
+            max_v = torch.max(self.c2w[:, axis, 3])
+            self.c2w[:, axis, 3] -= (min_v + max_v) / 2
 
         scene_scale = 1 / (torch.max(self.c2w[:, :3, 3]) + 0.5)
         self.c2w[:, :3, 3] *= scene_scale
