@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from functools import lru_cache
 import json
 import os
 from typing import List, Optional, TypeVar
@@ -44,6 +45,7 @@ def get_rays(transform: torch.Tensor, width: int, height: int, focal: float) -> 
     origins = transform[:3, 3].flatten().unsqueeze(0).expand(height * width, 3).contiguous()  # [H*W, 3]
     return Rays(origins=origins, dirs=dirs)
 
+@lru_cache(maxsize=20000)
 def load_depth_file(fpath: str) -> torch.Tensor:
     os.environ["OPENCV_IO_ENABLE_OPENEXR"]="1"
 
@@ -58,7 +60,7 @@ class Pointcloud:
         self.features = features
 
     @classmethod
-    def from_dataset(cls, dataset_path: str, transforms_to_load: List[str]) -> 'Pointcloud':
+    def from_dataset(cls, dataset_path: str, transforms_to_load: List[str], clipping_distance: Optional[float]=None) -> 'Pointcloud':
         depths_dir = os.path.join(dataset_path, DEPTH_DIR)
         images_dir = os.path.join(dataset_path, IMAGE_DIR)
 
@@ -83,6 +85,8 @@ class Pointcloud:
                 depth = load_depth_file(depth_path)
                 depth_height, depth_width = depth.shape
                 depth = depth.reshape(-1, 1)
+                if clipping_distance is not None:
+                    depth = torch.clip(depth, 0, clipping_distance)
 
                 focal = float(0.5 * depth_width / np.tan(0.5 * camera_angle_x))
                 rays = get_rays(torch.tensor(frame["transform_matrix"]), depth_width, depth_height, focal)
@@ -108,19 +112,32 @@ class Pointcloud:
         Fits the pointcloud to a unit cube centered at the origin.
         returns the transformation matrix used to do so.
         """
-        min_point = self.points.min(dim=0)
-        max_point = self.points.max(dim=0)
+        min_point, _ = self.points.min(dim=0)
+        max_point, _ = self.points.max(dim=0)
+
+        print(f"min_point: {min_point}, max_point: {max_point}")
 
         center = (min_point + max_point) / 2
-        scale = (max_point - min_point).max()
+        scale_matrix = self.get_scale_to_unit_cube() * torch.eye(4)
+        scale_matrix[3, 3] = 1
 
+        translation_matrix = torch.eye(4)
+        translation_matrix[:3, 3] = -center
         transform = torch.eye(4)
-        transform[:3, 3] = -center
-        transform[:3, :3] /= scale
+        transform = translation_matrix @ transform
+        transform = scale_matrix @ transform
         return transform
 
-    def get_centre_of_weight(self) -> torch.Tensor:
+    def get_scale_to_unit_cube(self) -> float:
+        min_point, _ = self.points.min(dim=0)
+        max_point, _ = self.points.max(dim=0)
+
+        scale = (max_point - min_point).max()
+        return 1/scale.item()
+
+    def get_centre_of_mass(self) -> torch.Tensor:
         return self.points.mean(dim=0)
+
 
     def get_pruned_pointcloud(self, n_points) -> 'Pointcloud':
         """
