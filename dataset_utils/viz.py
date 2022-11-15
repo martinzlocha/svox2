@@ -76,7 +76,7 @@ class Camera:
 
 class VizApplication:
     def __init__(self, dataset_dir: str):
-        potential_transforms_files = ["transforms_train.json", "transforms_test.json"]
+        potential_transforms_files = ["transforms_train.json", "transforms_test.json", "transforms_train_original.json", "transforms_test_original.json"]
         transforms_files = [f for f in os.listdir(dataset_dir) if f in potential_transforms_files]
 
         self.transforms = {}
@@ -258,9 +258,6 @@ class VizApplication:
         cameras = self.cameras[transform_name]
         for camera in cameras:
             self.scene.scene.show_geometry(camera.name, is_checked)
-
-
-        self.scene.scene.show_geometry(f"pcd_{transform_name}", is_checked)
 
     def _on_check_pcd(self, is_checked: bool, transform_name: str):
         self.scene.scene.show_geometry(f"pcd_{transform_name}", is_checked)
