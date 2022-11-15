@@ -9,3 +9,5 @@ oryx-build-commands.txt
 **.eggs
 build/
 svox2.*
+
+.env
