@@ -139,7 +139,7 @@ class NeRFDataset(DatasetBase):
 
         depth_paths = map(lambda frame: path.join(depth_data_path, path.basename(frame["file_path"]) + ".exr"), j["frames"])
 
-        if use_depth:
+        if use_depth and split == 'train':
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 depths = list(tqdm(executor.map(partial(load_depth_file, width=self.w_full, height=self.h_full), depth_paths), total=len(j["frames"])))
 

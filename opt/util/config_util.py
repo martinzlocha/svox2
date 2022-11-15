@@ -33,6 +33,10 @@ def define_common_args(parser : argparse.ArgumentParser):
                          type=float,
                          default=0,
                          help="Global scene translation along the z-axis")
+    group.add_argument('--use_depth',
+                         type=bool,
+                         default=False,
+                         help="Whether to use depth information")
     group.add_argument('--scale',
                          type=float,
                          default=None,
@@ -141,7 +145,8 @@ def build_data_options(args):
         'data_bbox_scale': args.data_bbox_scale,
         'cam_scale_factor': args.cam_scale_factor,
         'normalize_by_camera': args.normalize_by_camera,
-        'permutation': args.perm
+        'permutation': args.perm,
+        'use_depth': args.use_depth,
     }
 
 def maybe_merge_config_file(args, allow_invalid=False):
