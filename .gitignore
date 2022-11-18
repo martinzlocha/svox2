@@ -11,3 +11,5 @@ build/
 svox2.*
 
 .env
+
+**wandb**
