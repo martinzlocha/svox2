@@ -34,27 +34,21 @@ def _raise_if_invalid_dataset(dataset_path) -> None:
     images_dir = os.path.join(dataset_path, IMAGE_DIR)
 
     # make sure the datset dir contains everything we need
-    if not os.path.isdir(depths_dir):
-        raise ValueError(f"Depth directory {depths_dir} does not exist")
+    # if not os.path.isdir(depths_dir):
+    #     raise ValueError(f"Depth directory {depths_dir} does not exist")
 
-    if not os.path.isdir(images_dir):
-        raise ValueError(f"Image directory {images_dir} does not exist")
+    # if not os.path.isdir(images_dir):
+    #     raise ValueError(f"Image directory {images_dir} does not exist")
 
-    for transform in TRANSFORMS:
-        transform_file = os.path.join(dataset_path, f"transforms_{transform}.json")
+    if "transforms_train_original.json" in os.listdir(dataset_path):
+        raise ValueError("Dataset already transformed")
+
+    transforms = ["transforms_train.json", "transforms_test.json"]
+
+    for transform in transforms:
+        transform_file = os.path.join(dataset_path, transform)
         if not os.path.isfile(transform_file):
             raise ValueError(f"Transform file {transform_file} does not exist")
-
-    # make sure we are not accidentally running the script on the directory that has already been transformed
-    original_depths_dir = os.path.join(dataset_path, f"{DEPTH_DIR}{ORIGINAL_SUFFIX}")
-    original_images_dir = os.path.join(dataset_path, f"{IMAGE_DIR}{ORIGINAL_SUFFIX}")
-    if os.path.isdir(original_depths_dir) or os.path.isdir(original_images_dir):
-        raise ValueError(f"Original directories {original_depths_dir} and {original_images_dir} already exist. Aborting")
-
-    for transform in TRANSFORMS:
-        original_transform_file = os.path.join(dataset_path, f"transforms_{transform}{ORIGINAL_SUFFIX}.json")
-        if os.path.isfile(original_transform_file):
-            raise ValueError(f"Original transform file {original_transform_file} already exists. Aborting")
 
 
 def transform_frame(frame: Dict, transform_matrix: np.ndarray) -> Dict:
@@ -66,22 +60,23 @@ def transform_frame(frame: Dict, transform_matrix: np.ndarray) -> Dict:
 
 def main(dataset_path: str, clipping_distance: Optional[float] = None) -> None:
     _raise_if_invalid_dataset(dataset_path)
-    point_cloud = Pointcloud.from_dataset(dataset_path, [f"transforms_{transform}.json" for transform in TRANSFORMS], clipping_distance=clipping_distance)
+    transforms = ["transforms_train.json", "transforms_test.json"]
+    point_cloud = Pointcloud.from_dataset(dataset_path, transforms, clipping_distance=clipping_distance)
     transform_to_fit_to_unit_cube = point_cloud.fit_to_unit_cube()
 
     print(transform_to_fit_to_unit_cube)
 
     # copy old data (and make this script idempotent)
-    for transform in TRANSFORMS:
-        transform_file = os.path.join(dataset_path, f"transforms_{transform}.json")
-        original_transform_file = os.path.join(dataset_path, f"transforms_{transform}{ORIGINAL_SUFFIX}.json")
+    for transform in transforms:
+        transform_file = os.path.join(dataset_path, transform)
+        original_transform_file = os.path.join(dataset_path, f"{os.path.splitext(transform)[0]}{ORIGINAL_SUFFIX}.json")
         os.rename(transform_file, original_transform_file)
 
     fitting_matrix = transform_to_fit_to_unit_cube
 
-    for transform in TRANSFORMS:
-        original_transform_file = os.path.join(dataset_path, f"transforms_{transform}{ORIGINAL_SUFFIX}.json")
-        new_transform_file = os.path.join(dataset_path, f"transforms_{transform}.json")
+    for transform in transforms:
+        original_transform_file = os.path.join(dataset_path, f"{os.path.splitext(transform)[0]}{ORIGINAL_SUFFIX}.json")
+        new_transform_file = os.path.join(dataset_path, transform)
 
         with open(original_transform_file, "r") as f:
             transforms = json.load(f)
