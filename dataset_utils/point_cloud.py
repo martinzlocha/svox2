@@ -10,7 +10,7 @@ import cv2
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor
 
-from constants import DEPTH_DIR, IMAGE_DIR
+from .constants import DEPTH_DIR, IMAGE_DIR
 
 @dataclass
 class Rays:
@@ -75,7 +75,7 @@ def _depth_file_path_from_frame(frame: dict, depth_dir: str, dataset_dir: str) -
 
     return os.path.join(depth_dir, f"{frame['image_id']:04d}.exr")
 
-def _get_points_and_features(frame: Dict, dataset_path: str, images_dir: str, depths_dir: str, camera_angle_x: float, clipping_distance: Optional[float] = None):
+def _get_points_and_features(frame: Dict, dataset_path: str, images_dir: str, depths_dir: str, camera_angle_x: float, clipping_distance: Optional[float] = None, translation: Optional[torch.Tensor]=None, scaling: Optional[float]=None):
     img_name = frame["file_path"]
     # img_path = os.path.join(images_dir, f"{img_name}.jpg")
     img_path = _img_file_path_from_frame(frame, images_dir, dataset_path)
@@ -91,7 +91,14 @@ def _get_points_and_features(frame: Dict, dataset_path: str, images_dir: str, de
         depth = torch.clip(depth, 0, clipping_distance)
 
     focal = float(0.5 * depth_width / np.tan(0.5 * camera_angle_x))
-    rays = get_rays(torch.tensor(frame["transform_matrix"]), depth_width, depth_height, focal)
+    transformation_matrix = torch.tensor(frame["transform_matrix"])
+    if translation is not None:
+        transformation_matrix[:3, 3] += translation
+
+    if scaling is not None:
+        transformation_matrix[:3, 3] *= scaling
+
+    rays = get_rays(transformation_matrix, depth_width, depth_height, focal)
 
     img_points = rays.origins + rays.dirs * depth
     # points_list.append(img_points)
@@ -112,7 +119,11 @@ class Pointcloud:
         self.features = features
 
     @classmethod
-    def from_dataset(cls, dataset_path: str, transforms_to_load: List[str], clipping_distance: Optional[float]=None) -> 'Pointcloud':
+    def from_dataset(cls, dataset_path: str, 
+                          transforms_to_load: List[str], 
+                          clipping_distance: Optional[float]=None,
+                          translation: Optional[torch.Tensor]=None,
+                          scaling: Optional[float]=None) -> 'Pointcloud':
         depths_dir = os.path.join(dataset_path, DEPTH_DIR)
         images_dir = os.path.join(dataset_path, IMAGE_DIR)
 
@@ -128,7 +139,7 @@ class Pointcloud:
             camera_angle_x = transforms["camera_angle_x"]
 
             with ThreadPoolExecutor() as executor:
-                points_features = list(tqdm(executor.map(partial(_get_points_and_features, dataset_path=dataset_path, images_dir=images_dir, depths_dir=depths_dir, camera_angle_x=camera_angle_x, clipping_distance=clipping_distance), transforms["frames"]), total=len(transforms["frames"])))
+                points_features = list(tqdm(executor.map(partial(_get_points_and_features, dataset_path=dataset_path, images_dir=images_dir, depths_dir=depths_dir, camera_angle_x=camera_angle_x, clipping_distance=clipping_distance, translation=translation, scaling=scaling), transforms["frames"]), total=len(transforms["frames"])))
 
             points, features = zip(*points_features)
             points_list.extend(points)
