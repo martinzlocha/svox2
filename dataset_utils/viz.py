@@ -9,7 +9,7 @@ import os
 from point_cloud import Pointcloud
 from fire import Fire
 
-MAX_POINTCLOUD_POINTS = 1000000
+MAX_POINTCLOUD_POINTS = 100000
 
 def to_absolute_path(path: str, parent_dir: Optional[str] = None) -> str:
     path = os.path.expanduser(path)
@@ -88,13 +88,14 @@ class VizApplication:
 
         self.cameras = {}
 
+        print("Building cameras...")
         for transform_name, transforms in self.transforms.items():
             self.cameras[transform_name] = []
             for i, transform in enumerate(transforms):
                 camera = Camera(f"camera_{i}_{transform_name}", transform)
                 self.cameras[transform_name].append(camera)
 
-        print("building the window")
+        print("Building the window...")
         # NOW THE WINDOW
         self.window = gui.Application.instance.create_window(
             "Colmap viz", 1600, 1000)
@@ -111,6 +112,10 @@ class VizApplication:
         material = rendering.MaterialRecord()
         material.shader = "defaultUnlit"
 
+        line_material = rendering.MaterialRecord()
+        line_material.shader = "unlitLine"
+        line_material.line_width = 1
+
         self.scene.scene.show_axes(True)
         self.scene.set_view_controls(gui.SceneWidget.Controls.ROTATE_CAMERA)
 
@@ -124,17 +129,22 @@ class VizApplication:
         self.window.add_child(self.scene)
         self.window.add_child(self.settings_panel)
         # self.scene.scene.add_geometry("grid", self.coordinates_grid, grid_material)
+
+        print("Adding cameras geometry...")
         for transform_name, cameras in self.cameras.items():
             for camera in cameras:
-                self.scene.scene.add_geometry(camera.name, camera.geometry, material)
+                self.scene.scene.add_geometry(camera.name, camera.geometry, line_material)
                 self.scene.scene.show_geometry(camera.name, False)
 
         for transform_name in transforms_files:
+            print(f"Adding {transform_name} pointcloud geometry...")
             pointcloud = Pointcloud.from_dataset(dataset_dir, [transform_name])
             self.scene.scene.add_geometry(f"pcd_{transform_name}", get_o3d_pointcloud(pointcloud.get_pruned_pointcloud(MAX_POINTCLOUD_POINTS)), material)
             self.scene.scene.show_geometry(f"pcd_{transform_name}", False)
 
-        self.scene.scene.add_geometry("unit_cube", self._get_unit_cube_mesh(), material)
+        print("Adding unit cube geometry...")
+        self.scene.scene.add_geometry("unit_cube", self._get_unit_cube_mesh(), line_material)
+        print("rendering now!")
 
 
     def _on_layout(self, layout_context):
