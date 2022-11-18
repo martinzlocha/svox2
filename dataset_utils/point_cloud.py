@@ -54,6 +54,27 @@ def load_depth_file(fpath: str) -> torch.Tensor:
 
     return torch.from_numpy(depth)
 
+def _img_file_path_from_frame(frame: dict, potential_images_dir: str, dataset_dir: str) -> str:
+    img_path = frame['file_path']
+
+    extensions = ['.jpg', '.png', '']
+    parent_dirs = [potential_images_dir, dataset_dir, '']
+
+    for extension in extensions:
+        for parent_dir in parent_dirs:
+            fpath = os.path.join(parent_dir, img_path + extension)
+            if os.path.exists(fpath):
+                return fpath
+
+    raise FileNotFoundError(f'Could not find image file for frame {frame["frame_id"]}')
+
+def _depth_file_path_from_frame(frame: dict, depth_dir: str, dataset_dir: str) -> str:
+    if 'depth_path' in frame:
+        return os.path.join(dataset_dir, frame['depth_path'])
+
+    return os.path.join(depth_dir, f"{frame['image_id']:04d}.exr")
+
+
 class Pointcloud:
     def __init__(self, points: torch.Tensor, features: Optional[torch.Tensor]=None):
         self.points = points
@@ -77,11 +98,13 @@ class Pointcloud:
 
             for i, frame in enumerate(tqdm(transforms["frames"], desc=f"Loading {transforms_name} pointcloud")):
                 img_name = frame["file_path"]
-                img_path = os.path.join(images_dir, f"{img_name}.jpg")
+                # img_path = os.path.join(images_dir, f"{img_name}.jpg")
+                img_path = _img_file_path_from_frame(frame, images_dir, dataset_path)
                 img = imageio.imread(img_path)
                 height, width, _ = img.shape
 
-                depth_path = os.path.join(depths_dir, f"{img_name}.exr")
+                # depth_path = os.path.join(depths_dir, f"{img_name}.exr")
+                depth_path = _depth_file_path_from_frame(frame, depths_dir, dataset_path)
                 depth = load_depth_file(depth_path)
                 depth_height, depth_width = depth.shape
                 depth = depth.reshape(-1, 1)
