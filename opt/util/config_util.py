@@ -4,8 +4,9 @@ from util.dataset import datasets
 import json
 
 
-def define_common_args(parser : argparse.ArgumentParser):
-    parser.add_argument('data_dir', type=str)
+def define_common_args(parser : argparse.ArgumentParser, data_dir_optional: bool = False):
+    if not data_dir_optional:
+        parser.add_argument('data_dir', type=str)
 
     parser.add_argument('--config', '-c',
                          type=str,
