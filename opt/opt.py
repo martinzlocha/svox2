@@ -393,7 +393,7 @@ pc_orig = load_pointcloud()
 pc_large = pc_orig.get_pruned_pointcloud(pc_point_count * 2)
 pc = pc_orig.get_pruned_pointcloud(pc_point_count)
 pc_points = pc.points.cuda()
-negative_points = torch.rand([pc_point_count, 3]).cuda() * 0.6 - 0.3
+negative_points = torch.rand([pc_point_count, 3]).cuda() * 0.2 - 0.1
 pc_keep_points = pc_large.points.cuda()
 
 def set_grid_density(grid: svox2.svox2.SparseGrid,
@@ -447,12 +447,19 @@ def get_links(points):
 #optimal_density = get_links(pc_points)
 #neg_optimal_density = get_links(negative_points)
 set_grid_density(grid, pc_keep_points)
+grid.save_voxels_to_dict(ckpt_path)
 
 
 if args.enable_random:
     warn("Randomness is enabled for training (normal for LLFF & scenes with background)")
 
 epoch_id = -1
+grid.resample(reso=reso_list[0],
+                sigma_thresh=args.density_thresh,
+                weight_thresh=args.weight_thresh / reso_list[0][2],
+                dilate=2, #use_sparsify,
+                cameras=resample_cameras if args.thresh_type == 'weight' else None,
+                max_elements=args.max_grid_elements)
 while True:
     dset.shuffle_rays()
     epoch_id += 1
@@ -558,16 +565,11 @@ while True:
         # NOTE: we do an eval sanity check, if not in tune_mode
         eval_step()
         gc.collect()
-
+    
     def train_step():
         print('Train step')
         pbar = tqdm(enumerate(range(0, epoch_size, args.batch_size)), total=batches_per_epoch)
         stats = {"mse" : 0.0, "psnr" : 0.0, "invsqr_mse" : 0.0}
-        pc = pc_orig.get_pruned_pointcloud(pc_point_count)
-        pc_points = pc.points.cuda()
-        negative_points = torch.rand([pc_point_count, 3]).cuda() * 0.6 - 0.3
-        optimal_density = get_links(pc_points)
-        neg_optimal_density = get_links(negative_points)
 
         for iter_id, batch_begin in pbar:
             gstep_id = iter_id + gstep_id_base
@@ -589,6 +591,7 @@ while True:
             rgb_gt = dset.rays.gt[batch_begin: batch_end]
             rays = svox2.Rays(batch_origins, batch_dirs)
 
+            """
             if iter_id % 500 == 0 and iter_id > 0:
                 pc = pc_orig.get_pruned_pointcloud(pc_point_count)
                 pc_points = pc.points.cuda()
@@ -618,7 +621,7 @@ while True:
             c0 = c00 * wa[:, 1:2] + c01 * wb[:, 1:2]
             c1 = c10 * wa[:, 1:2] + c11 * wb[:, 1:2]
             samples_sigma = c0 * wa[:, :1] + c1 * wb[:, :1]
-            (1e-4 * -samples_sigma.mean()).backward()
+            (1e-2 * -samples_sigma.mean()).backward()
 
             sigmas = []
             for links in neg_optimal_density[0]:
@@ -642,8 +645,8 @@ while True:
             c0 = c00 * wa[:, 1:2] + c01 * wb[:, 1:2]
             c1 = c10 * wa[:, 1:2] + c11 * wb[:, 1:2]
             samples_sigma = c0 * wa[:, :1] + c1 * wb[:, :1]
-            (1e-4 * samples_sigma.mean()).backward()
-
+            (1e-2 * samples_sigma.mean()).backward()
+            """
             ### ADD DEPTH LOSS ###
             #total_loss = 0.
             #aggregate = torch.sum(grid.density_data)
@@ -773,7 +776,6 @@ while True:
                 elif grid.basis_type == svox2.BASIS_TYPE_MLP:
                     optim_basis_mlp.step()
                     optim_basis_mlp.zero_grad()
-
     train_step()
     gc.collect()
     gstep_id_base += batches_per_epoch
