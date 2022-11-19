@@ -25,4 +25,5 @@ ssh -A vastai "git clone git@github.com:martinzlocha/svox2.git"
 ssh vastai "mkdir datasets"
 
 echo "installing pytorch and other python libs"
+ssh vastai "cd svox2 && pip install ."
 ssh vastai "cd svox2 && pip install -r requirements.txt"
