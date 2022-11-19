@@ -188,7 +188,7 @@ class Pointcloud:
         max_point, _ = self.points.max(dim=0)
 
         scale = (max_point - min_point).max()
-        return 1/scale.item()
+        return 2/scale.item()
 
     def fit_to_sphere(self, radius) -> torch.Tensor:
         min_point, _ = self.points.min(dim=0)
