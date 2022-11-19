@@ -125,8 +125,8 @@ class Pointcloud:
         self.features = features
 
     @classmethod
-    def from_dataset(cls, dataset_path: str, 
-                          transforms_to_load: List[str], 
+    def from_dataset(cls, dataset_path: str,
+                          transforms_to_load: List[str],
                           clipping_distance: Optional[float]=None,
                           translation: Optional[torch.Tensor]=None,
                           scaling: Optional[float]=None) -> 'Pointcloud':
@@ -189,6 +189,26 @@ class Pointcloud:
 
         scale = (max_point - min_point).max()
         return 1/scale.item()
+
+    def fit_to_sphere(self, radius) -> torch.Tensor:
+        min_point, _ = self.points.min(dim=0)
+        max_point, _ = self.points.max(dim=0)
+
+        center = (min_point + max_point) / 2
+
+        points_distances = ((self.points - center) ** 2).sum(dim=1)
+        max_dist = points_distances.max().sqrt()
+
+        scale_matrix = (radius / max_dist) * torch.eye(4)
+        scale_matrix[3, 3] = 1
+
+        translation_matrix = torch.eye(4)
+        translation_matrix[:3, 3] = -center
+        transform = torch.eye(4)
+        transform = translation_matrix @ transform
+        transform = scale_matrix @ transform
+        return transform
+
 
     def get_centre_of_mass(self) -> torch.Tensor:
         return self.points.mean(dim=0)
