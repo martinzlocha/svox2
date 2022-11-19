@@ -136,9 +136,16 @@ class NeRFDataset(DatasetBase):
             self.gt = self.gt[0:n_images,...]
             self.c2w = self.c2w[0:n_images,...]
 
-        self.intrins_full : Intrin = Intrin(focal, focal,
-                                            self.w_full * 0.5,
-                                            self.h_full * 0.5)
+        cx = self.w_full * 0.5
+        cy = self.h_full * 0.5
+        if "camera_intrinsics" in j:
+            intrinsics = j["camera_intrinsics"]
+            cx = intrinsics[6] * scale
+            cy = intrinsics[7] * scale
+
+        print("Using cx, cy:", cx, cy)
+
+        self.intrins_full : Intrin = Intrin(focal, focal, cx, cy)
 
         depth_paths = map(lambda frame: path.join(depth_data_path, path.basename(frame["file_path"]) + ".exr"), j["frames"])
 
