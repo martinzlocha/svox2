@@ -686,6 +686,7 @@ while True:
         timings_file.write(f"{secs / 60}\n")
         if not args.tune_nosave:
             grid.save(ckpt_path)
+            grid.save_voxels_to_dict(ckpt_path)
         break
 
 
