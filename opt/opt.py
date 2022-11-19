@@ -454,10 +454,10 @@ if args.enable_random:
     warn("Randomness is enabled for training (normal for LLFF & scenes with background)")
 
 epoch_id = -1
-grid.resample(reso=reso_list[0],
+grid.resample(reso=reso_list[-1],
                 sigma_thresh=args.density_thresh,
-                weight_thresh=args.weight_thresh / reso_list[0][2],
-                dilate=2, #use_sparsify,
+                weight_thresh=args.weight_thresh / reso_list[-1][2],
+                dilate=2,
                 cameras=resample_cameras if args.thresh_type == 'weight' else None,
                 max_elements=args.max_grid_elements)
 while True:
@@ -788,7 +788,7 @@ while True:
         grid.save(ckpt_path)
         grid.save_voxels_to_dict(ckpt_path)
 
-    if (gstep_id_base - last_upsamp_step) >= args.upsamp_every:
+    if False and (gstep_id_base - last_upsamp_step) >= args.upsamp_every:
         last_upsamp_step = gstep_id_base
         if reso_id < len(reso_list) - 1:
             print('* Upsampling from', reso_list[reso_id], 'to', reso_list[reso_id + 1])

@@ -452,12 +452,13 @@ def pose_spherical(theta : float, phi : float, radius : float, offset : Optional
     Generate spherical rendering poses, from NeRF. Forgive the code horror
     :return: r (3,), t (3,)
     """
-    c2w = _trans_t(radius)
+    
+    c2w = _trans_t(-radius)
     c2w = _rot_phi(phi / 180.0 * np.pi) @ c2w
-    c2w = _rot_theta(theta / 180.0 * np.pi) @ c2w
+    c2w = _rot_theta((-theta + 180.0) / 180.0 * np.pi) @ c2w
     c2w = (
         np.array(
-            [[-1, 0, 0, 0], [0, 0, -1, 0], [0, 1, 0, 0], [0, 0, 0, 1]],
+            [[1, 0, 0, 0], [0, 0, 1, 0], [0, 1, 0, 0], [0, 0, 0, 1]],
             dtype=np.float32,
         )
         @ c2w
