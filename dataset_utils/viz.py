@@ -1,6 +1,6 @@
 from functools import partial
 import json
-from typing import Optional
+from typing import Dict, Optional, Tuple
 import numpy as np
 import open3d as o3d
 import open3d.visualization.gui as gui
@@ -75,7 +75,9 @@ class Camera:
 
 
 class VizApplication:
-    def __init__(self, dataset_dir: str):
+    def __init__(self,
+                 dataset_dir: str,
+                 grid_dir: Optional[str] = None):
         potential_transforms_files = ["transforms_train.json", "transforms_test.json", "transforms_train_original.json", "transforms_test_original.json"]
         transforms_files = [f for f in os.listdir(dataset_dir) if f in potential_transforms_files]
 
@@ -128,6 +130,7 @@ class VizApplication:
         self.window.set_on_layout(self._on_layout)
         self.window.add_child(self.scene)
         self.window.add_child(self.settings_panel)
+
         # self.scene.scene.add_geometry("grid", self.coordinates_grid, grid_material)
 
         print("Adding cameras geometry...")
@@ -145,6 +148,28 @@ class VizApplication:
         print("Adding unit cube geometry...")
         self.scene.scene.add_geometry("unit_cube", self._get_unit_cube_mesh(), line_material)
         print("rendering now!")
+
+        if grid_dir is not None:
+            with open(grid_dir) as f:
+                grid = np.load(f)
+
+            self._show_grid(grid)
+
+    def _show_grid(self, grid: Dict[str, np.array]) -> None:
+        side_length = grid['side_length']
+        to_3_tuple = lambda x_arr: (float(x_arr[0]), float(x_arr[1]), float(x_arr[3]))
+
+        # Grid has locations, cube sizes, cube colors
+        for i, (location, colour) in enumerate(zip(grid['locations'],
+                                                   grid['colours'])):
+            line_material = rendering.MaterialRecord()
+            line_material.shader = "unlitLine"
+            line_material.line_width = 1
+            self.scene.scene.add_geometry("unit_cube", self._get_unit_cube_mesh(), line_material)
+
+
+
+            
 
 
     def _on_layout(self, layout_context):
@@ -241,26 +266,37 @@ class VizApplication:
         return button
 
     @staticmethod
-    def _get_unit_cube_mesh(length: int = 10):
+    def _get_unit_cube_mesh(radius: int = 0.5,
+                            translation: Optional[Tuple[float, float, float]] = None,
+                            colour: Tuple[float, float, float] = (1., 0., 0.)):
         unit_cube = o3d.geometry.LineSet()
+        cube_edges = [
+            [radius, radius, radius],
+            [radius, radius, -radius],
+            [radius, -radius, radius],
+            [radius, -radius, -radius],
+            [-radius, radius, radius],
+            [-radius, radius, -radius],
+            [-radius, -radius, radius],
+            [-radius, -radius, -radius],
+        ]
+
+        if translation is not None:
+            translated_edges = []
+            for (ex, ey, ez) in cube_edges:
+                translated_edges.append([ex + translation[0],
+                                         ey + translation[1],
+                                         ez + translation[2]])
+            cube_edges = translated_edges
+                
 
         # get vertices of a unit cube with center at origin
-        unit_cube.points = o3d.utility.Vector3dVector([
-            [0.5, 0.5, 0.5],
-            [0.5, 0.5, -0.5],
-            [0.5, -0.5, 0.5],
-            [0.5, -0.5, -0.5],
-            [-0.5, 0.5, 0.5],
-            [-0.5, 0.5, -0.5],
-            [-0.5, -0.5, 0.5],
-            [-0.5, -0.5, -0.5],
-        ])
+        unit_cube.points = o3d.utility.Vector3dVector(cube_edges)
 
         unit_cube.lines = o3d.utility.Vector2iVector([
             [0, 1], [0, 2], [0, 4], [1, 3], [1, 5], [2, 3], [2, 6], [3, 7], [4, 5], [4, 6], [5, 7], [6, 7]
         ])
-
-        unit_cube.paint_uniform_color((1.0, 0.0, 0.0))
+        unit_cube.paint_uniform_color(colour)
 
         return unit_cube
 
