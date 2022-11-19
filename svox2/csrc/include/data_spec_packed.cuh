@@ -106,17 +106,17 @@ struct PackedRaysSpec {
     PackedRaysSpec(RaysSpec& spec) :
         origins(spec.origins.packed_accessor32<float, 2, torch::RestrictPtrTraits>()),
         dirs(spec.dirs.packed_accessor32<float, 2, torch::RestrictPtrTraits>()),
-        depths(spec.dirs.packed_accessor32<float, 1, torch::RestrictPtrTraits>()),
+        depths(spec.dirs.packed_accessor32<float, 1, torch::RestrictPtrTraits>())
     { }
 };
 
 struct SingleRaySpec {
     SingleRaySpec() = default;
-    __device__ SingleRaySpec(const float* __restrict__ origin, const float* __restrict__ dir, const float* __restrict__ depth)
+    __device__ SingleRaySpec(const float* __restrict__ origin, const float* __restrict__ dir, const float depth)
         : origin{origin[0], origin[1], origin[2]},
           dir{dir[0], dir[1], dir[2]},
           depth(depth) {}
-    __device__ void set(const float* __restrict__ origin, const float* __restrict__ dir, const float* __restrict__ depth) {
+    __device__ void set(const float* __restrict__ origin, const float* __restrict__ dir, const float depth) {
         this->depth = depth;
 #pragma unroll 3
         for (int i = 0; i < 3; ++i) {
