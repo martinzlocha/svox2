@@ -148,8 +148,6 @@ class VizApplication:
 
         for transform_name in transforms_files:
             print(f"Adding {transform_name} pointcloud geometry...")
-            translation = torch.Tensor([1.2, 0., 1.4])
-            scaling = 0.25
             pointcloud = Pointcloud.from_dataset(dataset_dir, [transform_name], translation=translation, scaling=scaling)
             self.scene.scene.add_geometry(f"pcd_{transform_name}", get_o3d_pointcloud(pointcloud.get_pruned_pointcloud(MAX_POINTCLOUD_POINTS)), material)
             self.scene.scene.show_geometry(f"pcd_{transform_name}", False)
