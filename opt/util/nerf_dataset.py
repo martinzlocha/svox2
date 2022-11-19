@@ -91,7 +91,7 @@ class NeRFDataset(DatasetBase):
         j = json.load(open(data_json, "r"))
 
         # OpenGL -> OpenCV
-        cam_trans = torch.diag(torch.tensor([1, -1, -1, 1], dtype=torch.float32))
+        cam_trans = torch.diag(torch.tensor([1, -1, 1, 1], dtype=torch.float32))
 
         if j["frames"][0]["file_path"].endswith(".jpg"):  # a quick hack to support diff types of dataset formats
             paths = map(lambda frame: path.join(root, frame["file_path"]), j["frames"])

@@ -47,7 +47,7 @@ class DatasetBase:
         )
         xx = (xx - self.intrins.cx) / self.intrins.fx
         yy = (yy - self.intrins.cy) / self.intrins.fy
-        zz = torch.ones_like(xx)
+        zz = -torch.ones_like(xx)
         dirs = torch.stack((xx, yy, zz), dim=-1)  # OpenCV convention
         dirs /= torch.norm(dirs, dim=-1, keepdim=True)
         dirs = dirs.reshape(1, -1, 3, 1)
