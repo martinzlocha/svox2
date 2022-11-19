@@ -658,16 +658,16 @@ class SparseGrid(nn.Module):
     def forward(self, points: torch.Tensor, use_kernel: bool = True):
         return self.sample(points, use_kernel=use_kernel)
 
-    def save_voxels_to_dict(self, save_dir: str) -> None:
-        print('Saving grid to dict for viz ...')
-        save_dir = os.path.dirname(save_dir)
+    def save_voxels_to_dict(self, checkpoint_path: str) -> None:
+        save_path = os.path.join(os.path.dirname(checkpoint_path), 'grid_dict.npy')
+        print(f'Saving grid as dict for viz to {save_path} ...')
         index = torch.nonzero(self.links + 1, as_tuple=False)
         locations = []
         locations = self.grid2world(index).cpu().detach().numpy()
         index = index.long()
         densities = self.density_data[self.links[index[:, 0], index[:, 1], index[:, 2]].long()].cpu().detach().numpy()
         side_length = (2 * self.radius) / self.reso[0]
-        with open(save_dir + 'grid_dict.npy', 'wb') as f:
+        with open(save_path, 'wb') as f:
             store_dict = {
                 'locations': locations,
                 'densities': densities,
