@@ -278,7 +278,7 @@ reso_id = 0
 
 def load_pointcloud(dataset_path: str = '/root/svox2/data/livingroom/') -> point_cloud.Pointcloud:
     translation = torch.Tensor([1.2, 0, 1.4])
-    scaling = 0.25
+    scaling = 0.2
     return point_cloud.Pointcloud.from_dataset(dataset_path,
                                                ['transforms_train.json'],
                                                translation=translation,
@@ -417,7 +417,9 @@ def set_grid_density(grid: svox2.svox2.SparseGrid,
                 ldx, ldy, ldz = lx + dx, ly + dy, lz + dz
                 links = grid.links[ldx, ldy, ldz]
                 mask = links >= 0
-                idxs = links[mask].long()
+                links = links[mask].long()
+                link_bincount = torch.bincount(links)
+                idxs = torch.argsort(link_bincount, descending=True)[:25000]
                 optimal_density[idxs] = target_density
     
     grid.density_data = torch.nn.Parameter(optimal_density)
@@ -454,10 +456,10 @@ if args.enable_random:
     warn("Randomness is enabled for training (normal for LLFF & scenes with background)")
 
 epoch_id = -1
-grid.resample(reso=reso_list[-1],
+grid.resample(reso=reso_list[0],
                 sigma_thresh=args.density_thresh,
-                weight_thresh=args.weight_thresh / reso_list[-1][2],
-                dilate=2,
+                weight_thresh=args.weight_thresh / reso_list[0][2],
+                dilate=1,
                 cameras=resample_cameras if args.thresh_type == 'weight' else None,
                 max_elements=args.max_grid_elements)
 while True:
@@ -788,7 +790,7 @@ while True:
         grid.save(ckpt_path)
         grid.save_voxels_to_dict(ckpt_path)
 
-    if False and (gstep_id_base - last_upsamp_step) >= args.upsamp_every:
+    if (gstep_id_base - last_upsamp_step) >= args.upsamp_every:
         last_upsamp_step = gstep_id_base
         if reso_id < len(reso_list) - 1:
             print('* Upsampling from', reso_list[reso_id], 'to', reso_list[reso_id + 1])
