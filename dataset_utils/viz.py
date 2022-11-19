@@ -7,9 +7,10 @@ import open3d.visualization.gui as gui
 import open3d.visualization.rendering as rendering
 import os
 from point_cloud import Pointcloud
+import torch
 from fire import Fire
 
-MAX_POINTCLOUD_POINTS = 100000
+MAX_POINTCLOUD_POINTS = 1000000
 
 def to_absolute_path(path: str, parent_dir: Optional[str] = None) -> str:
     path = os.path.expanduser(path)
@@ -147,18 +148,19 @@ class VizApplication:
 
         for transform_name in transforms_files:
             print(f"Adding {transform_name} pointcloud geometry...")
-            pointcloud = Pointcloud.from_dataset(dataset_dir, [transform_name])
+            translation = torch.Tensor([1.2, 0., 1.4])
+            scaling = 0.25
+            pointcloud = Pointcloud.from_dataset(dataset_dir, [transform_name], translation=translation, scaling=scaling)
             self.scene.scene.add_geometry(f"pcd_{transform_name}", get_o3d_pointcloud(pointcloud.get_pruned_pointcloud(MAX_POINTCLOUD_POINTS)), material)
             self.scene.scene.show_geometry(f"pcd_{transform_name}", False)
 
         print("Adding unit cube geometry...")
-        self.scene.scene.add_geometry("unit_cube", self._get_unit_cube_mesh(), line_material)
+        self.scene.scene.add_geometry("unit_cube", self._get_unit_cube_mesh(radius=1.), line_material)
         print("rendering now!")
 
     def _show_grid(self, grid: Dict[str, np.array], line_material) -> None:
         side_length = grid['side_length']
         to_3_tuple = lambda x_arr: (float(x_arr[0]), float(x_arr[1]), float(x_arr[2]))
-
         # Grid has locations, cube sizes, cube colors
         for i, location in enumerate(grid['locations']):
             self.scene.scene.add_geometry(f"grid_cube_{i}",
