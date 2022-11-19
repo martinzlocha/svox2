@@ -68,12 +68,11 @@ class DatasetBase:
             dirs = dirs.view(-1, 3)
             gt = gt.reshape(-1, 3)
 
-        # adjust origins based on the depth
         if hasattr(self, "depths"):
-            depths = self.depths.reshape(-1, 1)
-            avg_depth = torch.mean(depths)
-            print("shifting origins. avg depth = ", avg_depth)
-            origins = origins + dirs * (depths - 0.2)
+            self.flattened_depths = self.depths.reshape(-1, 1)
+            assert self.flattened_depths.size(dim=0) == self.origins.size(dim=0)
+            avg_depth = torch.mean(self.depths)
+            print("Avg depth = ", avg_depth)
 
         self.rays_init = Rays(origins=origins, dirs=dirs, gt=gt)
         self.rays = self.rays_init
