@@ -19,15 +19,24 @@ import math
 import argparse
 import cv2
 from util.dataset import datasets
-from util.util import Timing, get_expon_lr_func, generate_dirs_equirect, viridis_cmap
+from util.util import Timing, get_expon_lr_func, generate_dirs_equirect, viridis_cmap, compute_ssim
 from util import config_util
 
 from warnings import warn
 from datetime import datetime
 from torch.utils.tensorboard import SummaryWriter
 
+WANDB_ON=False
+
 from tqdm import tqdm
 from typing import NamedTuple, Optional, Union
+
+
+def log_image(image_name, image, global_step):
+    summary_writer.add_image(image_name, image, global_step=gstep_id_base, dataformats='HWC')
+
+    if WANDB_ON:
+        wandb.log({image_name: wandb.Image(image.numpy())}, step=gstep_id_base)
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -247,6 +256,15 @@ group.add_argument('--nosphereinit', action='store_true', default=False,
 args = parser.parse_args()
 config_util.maybe_merge_config_file(args)
 
+if WANDB_ON:
+    import wandb
+    wandb.init(project="roomoxels", config=vars(args), anonymous="allow")
+    args = wandb.config
+    args_as_dict = wandb.config.as_dict()
+else:
+    args_as_dict = vars(args)
+
+
 assert args.lr_sigma_final <= args.lr_sigma, "lr_sigma must be >= lr_sigma_final"
 assert args.lr_sh_final <= args.lr_sh, "lr_sh must be >= lr_sh_final"
 assert args.lr_basis_final <= args.lr_basis, "lr_basis must be >= lr_basis_final"
@@ -258,7 +276,7 @@ reso_list = json.loads(args.reso)
 reso_id = 0
 
 with open(path.join(args.train_dir, 'args.json'), 'w') as f:
-    json.dump(args.__dict__, f, indent=2)
+    json.dump(args_as_dict, f, indent=2)
     # Changed name to prevent errors
     shutil.copyfile(__file__, path.join(args.train_dir, 'opt_frozen.py'))
 
@@ -409,21 +427,17 @@ while True:
                 if i % img_save_interval == 0:
                     img_pred = rgb_pred_test.cpu()
                     img_pred.clamp_max_(1.0)
-                    summary_writer.add_image(f'test/image_{img_id:04d}',
-                            img_pred, global_step=gstep_id_base, dataformats='HWC')
+                    log_image(f'test/image_{img_id:04d}', img_pred, gstep_id_base)
                     if args.log_mse_image:
                         mse_img = all_mses / all_mses.max()
-                        summary_writer.add_image(f'test/mse_map_{img_id:04d}',
-                                mse_img, global_step=gstep_id_base, dataformats='HWC')
+                        log_image(f'test/mse_map_{img_id:04d}', mse_img, gstep_id_base)
                     if args.log_depth_map:
                         depth_img = grid.volume_render_depth_image(cam,
                                     args.log_depth_map_use_thresh if
                                     args.log_depth_map_use_thresh else None
                                 )
                         depth_img = viridis_cmap(depth_img.cpu())
-                        summary_writer.add_image(f'test/depth_map_{img_id:04d}',
-                                depth_img,
-                                global_step=gstep_id_base, dataformats='HWC')
+                        log_image(f'test/depth_map_{img_id:04d}', depth_img, gstep_id_base)
 
                 rgb_pred_test = rgb_gt_test = None
                 mse_num : float = all_mses.mean().item()
@@ -466,6 +480,11 @@ while True:
                         stats_test[stat_name], global_step=gstep_id_base)
             summary_writer.add_scalar('epoch_id', float(epoch_id), global_step=gstep_id_base)
             print('eval stats:', stats_test)
+            if WANDB_ON:
+                wandb.log({
+                    "eval/mse": stats_test['mse'],
+                    "eval/psnr": stats_test['psnr'],
+                }, step=gstep_id_base)
     if epoch_id % max(factor, args.eval_every) == 0: #and (epoch_id > 0 or not args.tune_mode):
         # NOTE: we do an eval sanity check, if not in tune_mode
         eval_step()
@@ -518,6 +537,8 @@ while True:
                     stat_val = stats[stat_name] / args.print_every
                     summary_writer.add_scalar(stat_name, stat_val, global_step=gstep_id)
                     stats[stat_name] = 0.0
+                    if WANDB_ON:
+                        wandb.log({"train/" + stat_name: stat_val}, step=gstep_id)
                 #  if args.lambda_tv > 0.0:
                 #      with torch.no_grad():
                 #          tv = grid.tv(logalpha=args.tv_logalpha, ndc_coeffs=dset.ndc_coeffs)
@@ -540,6 +561,14 @@ while True:
                     grid.sh_data.data *= args.weight_decay_sigma
                 if args.weight_decay_sigma < 1.0:
                     grid.density_data.data *= args.weight_decay_sh
+
+                if WANDB_ON:
+                    wandb.log({
+                        "lr_sh": lr_sh,
+                        "lr_sigma": lr_sigma,
+                        "lr_basis": lr_basis,
+
+                    }, step=gstep_id)
 
             #  # For outputting the % sparsity of the gradient
             #  indexer = grid.sparse_sh_grad_indexer
@@ -657,3 +686,83 @@ while True:
         if not args.tune_nosave:
             grid.save(ckpt_path)
         break
+
+
+if WANDB_ON:
+    dset = datasets[args.dataset_type](args.data_dir, split="test",
+                                **config_util.build_data_options(args))
+    import lpips
+    lpips_vgg = lpips.LPIPS(net="vgg").eval().to(device)
+
+    config_util.setup_render_opts(grid.opt, args)
+
+    # NOTE: no_grad enables the fast image-level rendering kernel for cuvol backend only
+    # other backends will manually generate rays per frame (slow)
+    with torch.no_grad():
+        n_images = dset.n_images
+        img_eval_interval = max(n_images, 1)
+        avg_psnr = 0.0
+        avg_ssim = 0.0
+        avg_lpips = 0.0
+        n_images_gen = 0
+        c2ws = dset.c2w.to(device=device)
+
+        frames = []
+        for img_id in tqdm(range(0, n_images, img_eval_interval)):
+            dset_h, dset_w = dset.get_image_size(img_id)
+            im_size = dset_h * dset_w
+            w = dset_w
+            h = dset_h
+
+            cam = svox2.Camera(c2ws[img_id],
+                            dset.intrins.get('fx', img_id),
+                            dset.intrins.get('fy', img_id),
+                            dset.intrins.get('cx', img_id) + (w - dset_w) * 0.5,
+                            dset.intrins.get('cy', img_id) + (h - dset_h) * 0.5,
+                            w, h,
+                            ndc_coeffs=dset.ndc_coeffs)
+            im = grid.volume_render_image(cam, use_kernel=True, return_raylen=False)
+            im.clamp_(0.0, 1.0)
+
+            # not render path
+            im_gt = dset.gt[img_id].to(device=device)
+            mse = (im - im_gt) ** 2
+            mse_num : float = mse.mean().item()
+            psnr = -10.0 * math.log10(mse_num)
+            avg_psnr += psnr
+            #timing
+            ssim = compute_ssim(im_gt, im).item()
+            avg_ssim += ssim
+
+            lpips_i = lpips_vgg(im_gt.permute([2, 0, 1]).contiguous(),
+                    im.permute([2, 0, 1]).contiguous(), normalize=True).item()
+            avg_lpips += lpips_i
+            print(img_id, 'PSNR', psnr, 'SSIM', ssim, 'LPIPS', lpips_i)
+
+            im = im.cpu().numpy()
+
+            im_gt = dset.gt[img_id].numpy()
+            im = np.concatenate([im_gt, im], axis=1)
+
+            im = (im * 255).astype(np.uint8)
+            frames.append(im)
+            im = None
+            n_images_gen += 1
+
+        print('AVERAGES')
+
+        avg_psnr /= n_images_gen
+        avg_ssim /= n_images_gen
+        avg_lpips /= n_images_gen
+
+        vid = np.transpose(np.array(frames), (0, 3, 1, 2))
+
+        wandb.log({
+            'final/psnr': avg_psnr,
+            'final/ssim': avg_ssim,
+            'final/lpips': avg_lpips,
+            'final/video': wandb.Video(vid, fps=30)
+        })
+
+        vid_path = os.path.join("/root/videos/", wandb.run.name + ".mp4")
+        imageio.mimwrite(vid_path, frames, fps=24, macro_block_size=8)
