@@ -1,3 +1,4 @@
+from importlib.resources import path
 from .defs import *
 from . import utils
 import torch
@@ -8,6 +9,7 @@ from dataclasses import dataclass
 from warnings import warn
 from functools import reduce
 from tqdm import tqdm
+import os
 from scipy.spatial.transform import Rotation
 import numpy as np
 
@@ -530,6 +532,7 @@ class SparseGrid(nn.Module):
         self.sh_rms: Optional[torch.Tensor] = None
         self.background_rms: Optional[torch.Tensor] = None
         self.basis_rms: Optional[torch.Tensor] = None
+        self.reso = reso
 
         if self.links.is_cuda and use_sphere_bound:
             self.accelerate()
@@ -654,6 +657,23 @@ class SparseGrid(nn.Module):
 
     def forward(self, points: torch.Tensor, use_kernel: bool = True):
         return self.sample(points, use_kernel=use_kernel)
+
+    def save_voxels_to_dict(self, save_dir: str) -> None:
+        print('Saving grid to dict for viz ...')
+        save_dir = os.path.dirname(save_dir)
+        index = torch.nonzero(self.links + 1, as_tuple=False)
+        locations = []
+        locations = self.grid2world(index).cpu().detach().numpy()
+        index = index.long()
+        densities = self.density_data[self.links[index[:, 0], index[:, 1], index[:, 2]].long()].cpu().detach().numpy()
+        scale_val = (2 * self.radius) / self.reso[0]
+        with open(save_dir + 'grid_dict.npy', 'wb') as f:
+            store_dict = {
+                'locations': locations,
+                'densities': densities,
+                'scale_val': scale_val
+            }
+            np.save(f, store_dict)
 
     def _volume_render_gradcheck_lerp(self, rays: Rays, return_raylen: bool=False):
         """
