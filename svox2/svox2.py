@@ -92,6 +92,7 @@ class Rays:
         """
         Generate object to pass to C++
         """
+        print(self.origins.size(), self.dirs.size(), self.depths.size())
         spec = _C.RaysSpec()
         spec.origins = self.origins
         spec.dirs = self.dirs
