@@ -93,7 +93,10 @@ class NeRFDataset(DatasetBase):
         # OpenGL -> OpenCV
         cam_trans = torch.diag(torch.tensor([1, -1, -1, 1], dtype=torch.float32))
 
-        paths = map(lambda frame: path.join(data_path, path.basename(frame["file_path"]) + ".jpg"), j["frames"])
+        if j["frames"][0]["file_path"].endswith(".jpg"):  # a quick hack to support diff types of dataset formats
+            paths = map(lambda frame: path.join(root, frame["file_path"]), j["frames"])
+        else:
+            paths = map(lambda frame: path.join(data_path, path.basename(frame["file_path"]) + ".jpg"), j["frames"])
         with concurrent.futures.ThreadPoolExecutor() as executor:
             all_gt = list(tqdm(executor.map(partial(load_image, scale=scale), paths), total=len(j["frames"])))
 
