@@ -637,10 +637,11 @@ while True:
 
     #  ckpt_path = path.join(args.train_dir, f'ckpt_{epoch_id:05d}.npz')
     # Overwrite prev checkpoints since they are very huge
-    if args.save_every > 0 and (epoch_id + 1) % max(
-            factor, args.save_every) == 0 and not args.tune_mode:
+    if (args.save_every > 0 and (epoch_id + 1) % max(
+            factor, args.save_every) == 0 and not args.tune_mode):
         print('Saving', ckpt_path)
         grid.save(ckpt_path)
+        grid.save_voxels_to_dict(ckpt_path)
 
     if (gstep_id_base - last_upsamp_step) >= args.upsamp_every:
         last_upsamp_step = gstep_id_base
@@ -685,6 +686,7 @@ while True:
         timings_file.write(f"{secs / 60}\n")
         if not args.tune_nosave:
             grid.save(ckpt_path)
+            grid.save_voxels_to_dict(ckpt_path)
         break
 
 

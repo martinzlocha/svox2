@@ -99,7 +99,10 @@ def _get_points_and_features(frame: Dict, dataset_path: str, images_dir: str, de
         transformation_matrix[:3, 3] += translation
 
     if scaling is not None:
-        transformation_matrix[:3, 3] *= scaling
+        scale_mat = scaling * torch.eye(4)
+        scale_mat[-1, -1] = 1.
+
+        transformation_matrix = scale_mat @ transformation_matrix
 
     rays = get_rays(transformation_matrix, depth_width, depth_height, focal)
 
