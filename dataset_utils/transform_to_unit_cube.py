@@ -4,8 +4,11 @@ import os
 import numpy as np
 from typing import Dict, Optional
 
-from constants import DEPTH_DIR, IMAGE_DIR, ORIGINAL_SUFFIX, TRANSFORMS
 from point_cloud import Pointcloud
+DEPTH_DIR = "depth"
+IMAGE_DIR = "images"
+ORIGINAL_SUFFIX = "_original"
+TRANSFORMS = ["train", "test"]
 
 """
 Dataset structure

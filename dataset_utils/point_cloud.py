@@ -10,7 +10,10 @@ import cv2
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor
 
-from .constants import DEPTH_DIR, IMAGE_DIR
+DEPTH_DIR = "depth"
+IMAGE_DIR = "images"
+ORIGINAL_SUFFIX = "_original"
+TRANSFORMS = ["train", "test"]
 
 @dataclass
 class Rays:
