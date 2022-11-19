@@ -514,7 +514,7 @@ def main():
                 batch_origins = dset.rays.origins[batch_begin: batch_end]
                 batch_dirs = dset.rays.dirs[batch_begin: batch_end]
                 rgb_gt = dset.rays.gt[batch_begin: batch_end]
-                rays = svox2.Rays(batch_origins, batch_dirs)
+                rays = svox2.Rays(batch_origins, batch_dirs, torch.zeros(batch_end - batch_begin))
 
                 #  with Timing("volrend_fused"):
                 rgb_pred = grid.volume_render_fused(rays, rgb_gt,

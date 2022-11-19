@@ -11,13 +11,15 @@ namespace {
 namespace device {
 // From old version (name is hacky whatever)
 struct BasicSingleRaySpec {
-    __device__ BasicSingleRaySpec(const float* __restrict__ origin, const float* __restrict__ dir)
+    __device__ BasicSingleRaySpec(const float* __restrict__ origin, const float* __restrict__ dir, const float* __restrict__ depth)
         : origin{origin[0], origin[1], origin[2]},
         dir{dir[0], dir[1], dir[2]},
-        vdir(dir) {}
+        vdir(dir),
+        depth(depth) {}
     float origin[3];
     float dir[3];
     const float* __restrict__ vdir;
+    const float* __restrict__ depth;
 };
 
 __device__ __inline__ float compute_skip_dist_nn(
@@ -287,7 +289,7 @@ __global__ void render_ray_svox1_kernel(
     CUDA_GET_THREAD_ID(tid, rays.origins.size(0));
     trace_ray(
         grid,
-        BasicSingleRaySpec(&rays.origins[tid][0], &rays.dirs[tid][0]),
+        BasicSingleRaySpec(&rays.origins[tid][0], &rays.dirs[tid][0], &rays.depths[tid][0]),
         opt,
         &out[tid][0]);
 }
@@ -323,7 +325,7 @@ __global__ void render_ray_svox1_backward_kernel(
         grid,
         grad_out,
         color_cache + tid * 3,
-        BasicSingleRaySpec(&rays.origins[tid][0], &rays.dirs[tid][0]),
+        BasicSingleRaySpec(&rays.origins[tid][0], &rays.dirs[tid][0], &rays.depths[tid][0]),
         opt,
         grads);
 }

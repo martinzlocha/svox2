@@ -594,7 +594,7 @@ while True:
             batch_origins = dset.rays.origins[batch_begin: batch_end]
             batch_dirs = dset.rays.dirs[batch_begin: batch_end]
             rgb_gt = dset.rays.gt[batch_begin: batch_end]
-            rays = svox2.Rays(batch_origins, batch_dirs)
+            rays = svox2.Rays(batch_origins, batch_dirs, torch.zeros(batch_end - batch_begin))
 
             """
             if iter_id % 500 == 0 and iter_id > 0:
