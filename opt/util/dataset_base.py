@@ -73,6 +73,7 @@ class DatasetBase:
 
         self.rays_init = Rays(origins=origins, dirs=dirs, gt=gt, depths=self.depths.reshape(-1, 1))
         self.rays = self.rays_init
+        assert self.rays.origins.size(dim=0) == self.rays.depths.size(dim=0)
 
     def get_image_size(self, i : int):
         # H, W

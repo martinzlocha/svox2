@@ -139,7 +139,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   py::class_<RaysSpec>(m, "RaysSpec")
       .def(py::init<>())
       .def_readwrite("origins", &RaysSpec::origins)
-      .def_readwrite("dirs", &RaysSpec::dirs);
+      .def_readwrite("dirs", &RaysSpec::dirs)
+      .def_readwrite("depths", &RaysSpec::depths);
 
   py::class_<RenderOptions>(m, "RenderOptions")
       .def(py::init<>())
