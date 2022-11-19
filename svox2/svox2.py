@@ -1095,7 +1095,7 @@ class SparseGrid(nn.Module):
     def volume_render_fused(
         self,
         rays: Rays,
-        volume_render_fused: torch.Tensor,
+        rgb_gt: torch.Tensor,
         randomize: bool = False,
         beta_loss: float = 0.0,
         sparsity_loss: float = 0.0
