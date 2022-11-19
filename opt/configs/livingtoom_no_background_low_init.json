@@ -19,5 +19,6 @@
   "scene_y_translate": 0,
   "scene_z_translate": 1.4,
   "white_bkgd": false,
-  "background_brightness": 0.5
+  "background_brightness": 0.5,
+  "use_depth": true
 }

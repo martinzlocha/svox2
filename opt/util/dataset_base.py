@@ -68,13 +68,10 @@ class DatasetBase:
             dirs = dirs.view(-1, 3)
             gt = gt.reshape(-1, 3)
 
-        if hasattr(self, "depths"):
-            self.flattened_depths = self.depths.reshape(-1, 1)
-            assert self.flattened_depths.size(dim=0) == self.origins.size(dim=0)
-            avg_depth = torch.mean(self.depths)
-            print("Avg depth = ", avg_depth)
+        avg_depth = torch.mean(self.depths)
+        print("Avg depth = ", avg_depth)
 
-        self.rays_init = Rays(origins=origins, dirs=dirs, gt=gt)
+        self.rays_init = Rays(origins=origins, dirs=dirs, gt=gt, depths=self.depths.reshape(-1, 1))
         self.rays = self.rays_init
 
     def get_image_size(self, i : int):

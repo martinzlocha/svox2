@@ -593,7 +593,7 @@ while True:
             batch_end = min(batch_begin + args.batch_size, epoch_size)
             batch_origins = dset.rays.origins[batch_begin: batch_end]
             batch_dirs = dset.rays.dirs[batch_begin: batch_end]
-            batch_depths = dset.flattened_depths[batch_begin: batch_end]
+            batch_depths = dset.rays.depths[batch_begin: batch_end]
             rgb_gt = dset.rays.gt[batch_begin: batch_end]
             rays = svox2.Rays(batch_origins, batch_dirs, batch_depths)
 
