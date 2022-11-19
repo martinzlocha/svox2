@@ -156,20 +156,18 @@ class VizApplication:
             self._show_grid(grid)
 
     def _show_grid(self, grid: Dict[str, np.array]) -> None:
-        side_length = grid['side_length']
+        side_length = float(grid['side_length'])
         to_3_tuple = lambda x_arr: (float(x_arr[0]), float(x_arr[1]), float(x_arr[3]))
 
         # Grid has locations, cube sizes, cube colors
-        for i, (location, colour) in enumerate(zip(grid['locations'],
-                                                   grid['colours'])):
+        for i, location in enumerate(grid['locations']):
             line_material = rendering.MaterialRecord()
-            line_material.shader = "unlitLine"
+            line_material.shader = f"grid_line_{i}"
             line_material.line_width = 1
-            self.scene.scene.add_geometry("unit_cube", self._get_unit_cube_mesh(), line_material)
-
-
-
-            
+            self.scene.scene.add_geometry(f"grid_cube_{i}",
+                                          self._get_unit_cube_mesh(side_length / 2,
+                                                                   to_3_tuple(location)),
+                                          line_material)
 
 
     def _on_layout(self, layout_context):
