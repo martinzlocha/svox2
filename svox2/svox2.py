@@ -666,7 +666,7 @@ class SparseGrid(nn.Module):
         locations = self.grid2world(index).cpu().detach().numpy()
         index = index.long()
         densities = self.density_data[self.links[index[:, 0], index[:, 1], index[:, 2]].long()].cpu().detach().numpy()
-        side_length = (2 * self.radius) / self.reso[0]
+        side_length = (2 * self.radius[0]) / self.reso[0]
         with open(save_path, 'wb') as f:
             store_dict = {
                 'locations': locations,
