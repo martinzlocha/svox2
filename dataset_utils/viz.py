@@ -132,6 +132,12 @@ class VizApplication:
         self.window.add_child(self.settings_panel)
 
         # self.scene.scene.add_geometry("grid", self.coordinates_grid, grid_material)
+        if grid_dir is not None:
+            print("Adding grid ...")
+            with open(grid_dir, 'rb') as f:
+                grid = np.load(f, allow_pickle=True).item()
+            self._show_grid(grid, line_material=line_material)
+
 
         print("Adding cameras geometry...")
         for transform_name, cameras in self.cameras.items():
@@ -149,21 +155,12 @@ class VizApplication:
         self.scene.scene.add_geometry("unit_cube", self._get_unit_cube_mesh(), line_material)
         print("rendering now!")
 
-        if grid_dir is not None:
-            with open(grid_dir) as f:
-                grid = np.load(f)
-
-            self._show_grid(grid)
-
-    def _show_grid(self, grid: Dict[str, np.array]) -> None:
-        side_length = float(grid['side_length'])
-        to_3_tuple = lambda x_arr: (float(x_arr[0]), float(x_arr[1]), float(x_arr[3]))
+    def _show_grid(self, grid: Dict[str, np.array], line_material) -> None:
+        side_length = grid['side_length']
+        to_3_tuple = lambda x_arr: (float(x_arr[0]), float(x_arr[1]), float(x_arr[2]))
 
         # Grid has locations, cube sizes, cube colors
         for i, location in enumerate(grid['locations']):
-            line_material = rendering.MaterialRecord()
-            line_material.shader = f"grid_line_{i}"
-            line_material.line_width = 1
             self.scene.scene.add_geometry(f"grid_cube_{i}",
                                           self._get_unit_cube_mesh(side_length / 2,
                                                                    to_3_tuple(location)),
@@ -312,11 +309,12 @@ class VizApplication:
         self.scene.scene.show_geometry("unit_cube", is_checked)
 
 
-def main(dataset_dir: str):
+def main(dataset_dir: str,
+         grid_dir: Optional[str] = None):
     dataset_dir = to_absolute_path(dataset_dir)
 
     gui.Application.instance.initialize()
-    VizApplication(dataset_dir)
+    VizApplication(dataset_dir, grid_dir)
     gui.Application.instance.run()
 
 if __name__ == "__main__":
