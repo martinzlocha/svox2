@@ -21,6 +21,7 @@ import cv2
 from util.dataset import datasets
 from util.util import Timing, get_expon_lr_func, generate_dirs_equirect, viridis_cmap, compute_ssim
 from util import config_util
+from dataset_utils import point_cloud
 
 from warnings import warn
 from datetime import datetime
@@ -275,6 +276,14 @@ summary_writer = SummaryWriter(args.train_dir)
 reso_list = json.loads(args.reso)
 reso_id = 0
 
+def load_pointcloud(dataset_path: str = '/root/svox2/data/livingroom/') -> point_cloud.Pointcloud:
+    translation = torch.Tensor([1.2, 0, 1.4])
+    scaling = 0.25
+    return point_cloud.Pointcloud.from_dataset(dataset_path,
+                                               ['transforms_train.json'],
+                                               translation=translation,
+                                               scaling=scaling)
+
 with open(path.join(args.train_dir, 'args.json'), 'w') as f:
     json.dump(args_as_dict, f, indent=2)
     # Changed name to prevent errors
@@ -379,6 +388,66 @@ lr_sh_factor = 1.0
 lr_basis_factor = 1.0
 
 last_upsamp_step = args.init_iters
+pc_point_count = 400000
+pc_orig = load_pointcloud()
+pc_large = pc_orig.get_pruned_pointcloud(pc_point_count * 2)
+pc = pc_orig.get_pruned_pointcloud(pc_point_count)
+pc_points = pc.points.cuda()
+negative_points = torch.rand([pc_point_count, 3]).cuda() * 0.6 - 0.3
+pc_keep_points = pc_large.points.cuda()
+
+def set_grid_density(grid: svox2.svox2.SparseGrid,
+                    points: torch.Tensor,
+                    target_density: float = 10.):
+    """Sets grid location to target color and density"""
+
+    # Shape: 3 x [n]
+    points = grid.world2grid(points)
+    points.clamp_min_(0.0)
+    for i in range(3):
+        points[:, i].clamp_max_(grid.links.size(i) - 1)
+    l = points.to(torch.long)
+    for i in range(3):
+        l[:, i].clamp_max_(grid.links.size(i) - 2)
+    lx, ly, lz = l.unbind(-1)
+    optimal_density = torch.zeros_like(grid.density_data)
+    for dx in [0, 1]:
+        for dy in [0, 1]:
+            for dz in [0, 1]:
+                ldx, ldy, ldz = lx + dx, ly + dy, lz + dz
+                links = grid.links[ldx, ldy, ldz]
+                mask = links >= 0
+                idxs = links[mask].long()
+                optimal_density[idxs] = target_density
+    
+    grid.density_data = torch.nn.Parameter(optimal_density)
+
+def get_links(points):
+    points = grid.world2grid(points)
+    points.clamp_min_(0.0)
+    for i in range(3):
+        points[:, i].clamp_max_(grid.links.size(i) - 1)
+    l = points.to(torch.long)
+    for i in range(3):
+        l[:, i].clamp_max_(grid.links.size(i) - 2)
+    wb = points - l
+    wa = 1.0 - wb
+    lx, ly, lz = l.unbind(-1)
+    links000 = grid.links[lx, ly, lz]
+    links001 = grid.links[lx, ly, lz + 1]
+    links010 = grid.links[lx, ly + 1, lz]
+    links011 = grid.links[lx, ly + 1, lz + 1]
+    links100 = grid.links[lx + 1, ly, lz]
+    links101 = grid.links[lx + 1, ly, lz + 1]
+    links110 = grid.links[lx + 1, ly + 1, lz]
+    links111 = grid.links[lx + 1, ly + 1, lz + 1]
+    
+    return (links000, links001, links010, links011, links100, links101, links110, links111), (wa, wb)
+
+#optimal_density = get_links(pc_points)
+#neg_optimal_density = get_links(negative_points)
+set_grid_density(grid, pc_keep_points)
+
 
 if args.enable_random:
     warn("Randomness is enabled for training (normal for LLFF & scenes with background)")
@@ -494,6 +563,12 @@ while True:
         print('Train step')
         pbar = tqdm(enumerate(range(0, epoch_size, args.batch_size)), total=batches_per_epoch)
         stats = {"mse" : 0.0, "psnr" : 0.0, "invsqr_mse" : 0.0}
+        pc = pc_orig.get_pruned_pointcloud(pc_point_count)
+        pc_points = pc.points.cuda()
+        negative_points = torch.rand([pc_point_count, 3]).cuda() * 0.6 - 0.3
+        optimal_density = get_links(pc_points)
+        neg_optimal_density = get_links(negative_points)
+
         for iter_id, batch_begin in pbar:
             gstep_id = iter_id + gstep_id_base
             if args.lr_fg_begin_step > 0 and gstep_id == args.lr_fg_begin_step:
@@ -513,6 +588,74 @@ while True:
             batch_dirs = dset.rays.dirs[batch_begin: batch_end]
             rgb_gt = dset.rays.gt[batch_begin: batch_end]
             rays = svox2.Rays(batch_origins, batch_dirs)
+
+            if iter_id % 500 == 0 and iter_id > 0:
+                pc = pc_orig.get_pruned_pointcloud(pc_point_count)
+                pc_points = pc.points.cuda()
+                negative_points = torch.rand([pc_point_count, 3]).cuda() * 0.2 - 0.1
+                optimal_density = get_links(pc_points)
+                neg_optimal_density = get_links(negative_points)
+
+            sigmas = []
+            for links in optimal_density[0]:
+                sigma, _ = grid._fetch_links(links)
+                sigmas.append(sigma)
+            
+            sigma000 = sigmas[0]
+            sigma001 = sigmas[1]
+            sigma010 = sigmas[2]
+            sigma011 = sigmas[3]
+            sigma100 = sigmas[4]
+            sigma101 = sigmas[5]
+            sigma110 = sigmas[6]
+            sigma111 = sigmas[7]
+            wa, wb = optimal_density[-1]
+
+            c00 = sigma000 * wa[:, 2:] + sigma001 * wb[:, 2:]
+            c01 = sigma010 * wa[:, 2:] + sigma011 * wb[:, 2:]
+            c10 = sigma100 * wa[:, 2:] + sigma101 * wb[:, 2:]
+            c11 = sigma110 * wa[:, 2:] + sigma111 * wb[:, 2:]
+            c0 = c00 * wa[:, 1:2] + c01 * wb[:, 1:2]
+            c1 = c10 * wa[:, 1:2] + c11 * wb[:, 1:2]
+            samples_sigma = c0 * wa[:, :1] + c1 * wb[:, :1]
+            (1e-4 * -samples_sigma.mean()).backward()
+
+            sigmas = []
+            for links in neg_optimal_density[0]:
+                sigma, _ = grid._fetch_links(links)
+                sigmas.append(sigma)
+            
+            sigma000 = sigmas[0]
+            sigma001 = sigmas[1]
+            sigma010 = sigmas[2]
+            sigma011 = sigmas[3]
+            sigma100 = sigmas[4]
+            sigma101 = sigmas[5]
+            sigma110 = sigmas[6]
+            sigma111 = sigmas[7]
+            wa, wb = neg_optimal_density[-1]
+
+            c00 = sigma000 * wa[:, 2:] + sigma001 * wb[:, 2:]
+            c01 = sigma010 * wa[:, 2:] + sigma011 * wb[:, 2:]
+            c10 = sigma100 * wa[:, 2:] + sigma101 * wb[:, 2:]
+            c11 = sigma110 * wa[:, 2:] + sigma111 * wb[:, 2:]
+            c0 = c00 * wa[:, 1:2] + c01 * wb[:, 1:2]
+            c1 = c10 * wa[:, 1:2] + c11 * wb[:, 1:2]
+            samples_sigma = c0 * wa[:, :1] + c1 * wb[:, :1]
+            (1e-4 * samples_sigma.mean()).backward()
+
+            ### ADD DEPTH LOSS ###
+            #total_loss = 0.
+            #aggregate = torch.sum(grid.density_data)
+            #total_pos = 0.
+            #total_cnt = 0
+            #for idx in optimal_density:
+            #    pos_sum = torch.sum(grid.density_data[idx])
+            #    total_loss = total_loss + (pos_sum / idx.shape[0])
+            #    total_pos = total_pos + pos_sum
+            #    total_cnt = total_cnt + idx.shape[0]
+            #total_loss -= (aggregate - total_pos) / (grid.density_data.shape[0] - total_cnt)
+
 
             #  with Timing("volrend_fused"):
             rgb_pred = grid.volume_render_fused(rays, rgb_gt,
@@ -664,6 +807,8 @@ while True:
                     dilate=2, #use_sparsify,
                     cameras=resample_cameras if args.thresh_type == 'weight' else None,
                     max_elements=args.max_grid_elements)
+            #optimal_density = get_links(pc_points)
+            #neg_optimal_density = get_links(negative_points)
 
             if grid.use_background and reso_id <= 1:
                 grid.sparsify_background(args.background_density_thresh)
