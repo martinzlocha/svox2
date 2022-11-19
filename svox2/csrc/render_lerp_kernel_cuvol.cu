@@ -1078,7 +1078,6 @@ void volume_render_cuvol_fused(
         torch::Tensor rgb_out,
         GridOutputGrads& grads) {
 
-    printf("HERE")
     DEVICE_GUARD(grid.sh_data);
     CHECK_INPUT(rgb_gt);
     CHECK_INPUT(rgb_out);
@@ -1086,7 +1085,6 @@ void volume_render_cuvol_fused(
     // rays.check();
     grads.check();
     const auto Q = rays.origins.size(0);
-    printf("HERE2")
 
     bool use_background = grid.background_links.defined() &&
                           grid.background_links.size(0) > 0;
