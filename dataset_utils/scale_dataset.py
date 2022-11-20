@@ -2,7 +2,7 @@ import json
 from fire import Fire
 import os
 import numpy as np
-from typing import Dict, Optional
+from typing import Dict, Literal, Optional
 
 from point_cloud import Pointcloud
 DEPTH_DIR = "depth"
@@ -61,13 +61,19 @@ def transform_frame(frame: Dict, transform_matrix: np.ndarray) -> Dict:
     return frame
 
 
-def main(dataset_path: str, clipping_distance: Optional[float] = None) -> None:
+def main(dataset_path: str, scaling=Literal["cube", "sphere"], clipping_distance: Optional[float] = None) -> None:
     _raise_if_invalid_dataset(dataset_path)
     transforms = ["transforms_train.json", "transforms_test.json"]
     point_cloud = Pointcloud.from_dataset(dataset_path, transforms, clipping_distance=clipping_distance)
-    transform_to_fit_to_unit_cube = point_cloud.fit_to_unit_cube()
 
-    print(transform_to_fit_to_unit_cube)
+    if scaling == "cube":
+        transform_to_fit = point_cloud.fit_to_unit_cube()
+    elif scaling == "sphere":
+        transform_to_fit = point_cloud.fit_to_sphere(radius=2)
+    else:
+        raise ValueError(f"Invalid scaling {scaling}")
+
+    print(transform_to_fit)
 
     # copy old data (and make this script idempotent)
     for transform in transforms:
@@ -75,7 +81,7 @@ def main(dataset_path: str, clipping_distance: Optional[float] = None) -> None:
         original_transform_file = os.path.join(dataset_path, f"{os.path.splitext(transform)[0]}{ORIGINAL_SUFFIX}.json")
         os.rename(transform_file, original_transform_file)
 
-    fitting_matrix = transform_to_fit_to_unit_cube
+    fitting_matrix = transform_to_fit
 
     for transform in transforms:
         original_transform_file = os.path.join(dataset_path, f"{os.path.splitext(transform)[0]}{ORIGINAL_SUFFIX}.json")

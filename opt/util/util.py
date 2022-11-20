@@ -457,7 +457,7 @@ def pose_spherical(theta : float, phi : float, radius : float, offset : Optional
     c2w = _rot_theta(theta / 180.0 * np.pi) @ c2w
     c2w = (
         np.array(
-            [[-1, 0, 0, 0], [0, 0, 1, 0], [0, 1, 0, 0], [0, 0, 0, 1]],
+            [[-1, 0, 0, 0], [0, 0, -1, 0], [0, 1, 0, 0], [0, 0, 0, 1]],
             dtype=np.float32,
         )
         @ c2w

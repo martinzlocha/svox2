@@ -258,7 +258,7 @@ config_util.maybe_merge_config_file(args)
 
 if WANDB_ON:
     import wandb
-    wandb.init(project="roomoxels", config=vars(args), anonymous="allow")
+    wandb.init(project="roomoxels", config=vars(args), anonymous="allow", tags=[args.data_dir])
     args = wandb.config
     args_as_dict = wandb.config.as_dict()
 else:
@@ -702,7 +702,7 @@ if WANDB_ON:
     # other backends will manually generate rays per frame (slow)
     with torch.no_grad():
         n_images = dset.n_images
-        img_eval_interval = max(n_images, 1)
+        img_eval_interval = 1
         avg_psnr = 0.0
         avg_ssim = 0.0
         avg_lpips = 0.0
@@ -759,12 +759,13 @@ if WANDB_ON:
 
         vid = np.transpose(np.array(frames), (0, 3, 1, 2))
 
+        vid_path = os.path.join("/root/videos/", wandb.run.name + ".mp4")
+        print(f"saving the video {vid_path}")
+        imageio.mimwrite(vid_path, frames, fps=24, macro_block_size=8)
+
         wandb.log({
             'final/psnr': avg_psnr,
             'final/ssim': avg_ssim,
             'final/lpips': avg_lpips,
-            'final/video': wandb.Video(vid, fps=30)
+            'final/video': wandb.Video(vid_path, format="mp4")
         })
-
-        vid_path = os.path.join("/root/videos/", wandb.run.name + ".mp4")
-        imageio.mimwrite(vid_path, frames, fps=24, macro_block_size=8)
