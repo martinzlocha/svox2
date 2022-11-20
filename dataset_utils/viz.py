@@ -137,7 +137,7 @@ class VizApplication:
             print("Adding grid ...")
             with open(grid_dir, 'rb') as f:
                 grid = np.load(f, allow_pickle=True).item()
-            self._show_grid(grid, line_material=line_material)
+            self._show_grid(grid, line_material)
 
 
         print("Adding cameras geometry...")
@@ -148,7 +148,7 @@ class VizApplication:
 
         for transform_name in transforms_files:
             print(f"Adding {transform_name} pointcloud geometry...")
-            pointcloud = Pointcloud.from_dataset(dataset_dir, [transform_name], translation=translation, scaling=scaling)
+            pointcloud = Pointcloud.from_dataset(dataset_dir, [transform_name])
             self.scene.scene.add_geometry(f"pcd_{transform_name}", get_o3d_pointcloud(pointcloud.get_pruned_pointcloud(MAX_POINTCLOUD_POINTS)), material)
             self.scene.scene.show_geometry(f"pcd_{transform_name}", False)
 
@@ -157,14 +157,42 @@ class VizApplication:
         print("rendering now!")
 
     def _show_grid(self, grid: Dict[str, np.array], line_material) -> None:
-        side_length = grid['side_length']
-        to_3_tuple = lambda x_arr: (float(x_arr[0]), float(x_arr[1]), float(x_arr[2]))
-        # Grid has locations, cube sizes, cube colors
-        for i, location in enumerate(grid['locations']):
-            self.scene.scene.add_geometry(f"grid_cube_{i}",
-                                          self._get_unit_cube_mesh(side_length / 2,
-                                                                   to_3_tuple(location)),
-                                          line_material)
+        side_radius = grid['side_length'] / 2
+        mesh = o3d.geometry.LineSet()
+        print('sum of den', grid['densities'].min())
+        mask = (grid['densities'] > 0.5)[..., 0]
+        locations = grid['locations'][mask]
+        print(locations.shape)
+        cube_edges = np.array([
+                [side_radius, side_radius, side_radius],
+                [side_radius, side_radius, -side_radius],
+                [side_radius, -side_radius, side_radius],
+                [side_radius, -side_radius, -side_radius],
+                [-side_radius, side_radius, side_radius],
+                [-side_radius, side_radius, -side_radius],
+                [-side_radius, -side_radius, side_radius],
+                [-side_radius, -side_radius, -side_radius],
+            ])
+        cube_lines = np.array([
+            [0, 1], [0, 2], [0, 4], [1, 3], [1, 5], [2, 3], [2, 6], [3, 7], [4, 5], [4, 6], [5, 7], [6, 7]
+        ])
+
+        
+        location_count = locations.shape[0]
+        locations_repeated = np.repeat(locations, 8, 0)
+        cube_edges = np.tile(cube_edges, [location_count, 1])
+        cube_edges += locations_repeated
+        location_increments = np.arange(location_count)[..., None]
+        location_increments = np.repeat(location_increments, 12, 0) * 8
+        cube_lines = np.tile(cube_lines, [location_count, 1])
+        cube_lines += location_increments
+
+        # get vertices of a unit cube with center at origin
+        mesh.points = o3d.utility.Vector3dVector(cube_edges)
+        mesh.lines = o3d.utility.Vector2iVector(cube_lines)
+        mesh.paint_uniform_color((0., 0., 1.))
+        
+        self.scene.scene.add_geometry("mesh", mesh, line_material)
 
 
     def _on_layout(self, layout_context):

@@ -9,4 +9,5 @@ for i in range(resolution):
     locations.append(init_loc + i * np.array([0., 0., side_len]))
 locations = np.stack(locations)
 with open('./grid.npy', 'wb') as f:
-    np.save(f, {'locations':locations, 'side_length':side_len})
+    np.save(f, {'locations':locations,
+                'side_length':side_len})
