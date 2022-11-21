@@ -98,8 +98,7 @@ class Rays:
         spec = _C.RaysSpec()
         spec.origins = self.origins
         spec.dirs = self.dirs
-        # spec.depths = self.depths
-        spec.depths = torch.zeros(self.origins.size(dim=0)).to(device='cuda')
+        spec.depths = self.depths
         return spec
 
     def __getitem__(self, key):
