@@ -289,7 +289,7 @@ __global__ void render_ray_svox1_kernel(
     CUDA_GET_THREAD_ID(tid, rays.origins.size(0));
     trace_ray(
         grid,
-        BasicSingleRaySpec(&rays.origins[tid][0], &rays.dirs[tid][0], rays.depths[tid][0]),
+        BasicSingleRaySpec(&rays.origins[tid][0], &rays.dirs[tid][0], &rays.depths[tid][0]),
         opt,
         &out[tid][0]);
 }
@@ -325,7 +325,7 @@ __global__ void render_ray_svox1_backward_kernel(
         grid,
         grad_out,
         color_cache + tid * 3,
-        BasicSingleRaySpec(&rays.origins[tid][0], &rays.dirs[tid][0], rays.depths[tid][0]),
+        BasicSingleRaySpec(&rays.origins[tid][0], &rays.dirs[tid][0], &rays.depths[tid][0]),
         opt,
         grads);
 }
