@@ -108,7 +108,7 @@ struct RaysSpec {
   inline void check() {
     CHECK_INPUT(origins);
     CHECK_INPUT(dirs);
-    // CHECK_INPUT(depths);
+    CHECK_INPUT(depths);
     TORCH_CHECK(origins.is_floating_point());
     TORCH_CHECK(dirs.is_floating_point());
     TORCH_CHECK(depths.is_floating_point());

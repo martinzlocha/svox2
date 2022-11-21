@@ -13,12 +13,15 @@ from warnings import warn
 
 @dataclass
 class Rays:
-    origins: Union[torch.Tensor, List[torch.Tensor]]
-    dirs: Union[torch.Tensor, List[torch.Tensor]]
-    gt: Union[torch.Tensor, List[torch.Tensor]]
-    depths: Union[torch.Tensor, List[torch.Tensor]]
+    origins: torch.Tensor
+    dirs: torch.Tensor
+    gt: torch.Tensor
+    depths: torch.Tensor
 
     def to(self, *args, **kwargs):
+        assert self.depths.dim() == 1
+        assert self.origins.size(dim=0) == self.depths.size(dim=0)
+
         origins = self.origins.to(*args, **kwargs)
         dirs = self.dirs.to(*args, **kwargs)
         gt = self.gt.to(*args, **kwargs)

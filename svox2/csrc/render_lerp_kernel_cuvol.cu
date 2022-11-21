@@ -1082,7 +1082,7 @@ void volume_render_cuvol_fused(
     CHECK_INPUT(rgb_gt);
     CHECK_INPUT(rgb_out);
     grid.check();
-    // rays.check();
+    rays.check();
     grads.check();
     const auto Q = rays.origins.size(0);
 
