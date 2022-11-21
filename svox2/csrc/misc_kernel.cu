@@ -324,7 +324,7 @@ __global__ void grid_weight_render_kernel(
     cam2world_ray(ix, iy, cam, dir, origin);
     grid_trace_ray(
         data,
-        SingleRaySpec(origin, dir, 0),
+        SingleRaySpec(origin, dir, {0}),
         offset,
         scaling,
         step_size,

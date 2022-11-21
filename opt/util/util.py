@@ -19,7 +19,7 @@ class Rays:
     depths: torch.Tensor
 
     def to(self, *args, **kwargs):
-        assert self.depths.dim() == 1
+        assert self.depths.dim() == 2
         assert self.origins.size(dim=0) == self.depths.size(dim=0)
 
         origins = self.origins.to(*args, **kwargs)
@@ -317,7 +317,7 @@ def generate_rays(w, h, focal, camtoworlds, equirect=False):
     norms = np.linalg.norm(directions, axis=-1, keepdims=True)
     viewdirs = directions / norms
     rays = Rays(
-        origins=origins, directions=directions, viewdirs=viewdirs, depths=tensor.zeros(origins.size(dim=0))
+        origins=origins, directions=directions, viewdirs=viewdirs, depths=tensor.zeros(origins.size(dim=0), 1)
     )
     return rays
 

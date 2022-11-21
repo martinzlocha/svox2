@@ -92,7 +92,7 @@ class Rays:
         """
         Generate object to pass to C++
         """
-        assert self.depths.dim() == 1
+        assert self.depths.dim() == 2
         assert self.origins.size(dim=0) == self.depths.size(dim=0)
 
         spec = _C.RaysSpec()
@@ -187,7 +187,7 @@ class Camera:
                     dirs,
                     self.ndc_coeffs)
             dirs /= torch.norm(dirs, dim=-1, keepdim=True)
-        return Rays(origins, dirs, torch.zeros(origins.size(dims=0)))
+        return Rays(origins, dirs, torch.zeros(origins.size(dims=0), 1))
 
 
 # BEGIN Differentiable CUDA functions with custom gradient

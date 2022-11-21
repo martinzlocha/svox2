@@ -313,7 +313,7 @@ __global__ void render_ray_kernel(
         TRACE_RAY_CUDA_RAYS_PER_BLOCK];
     ray_spec[ray_blk_id].set(rays.origins[ray_id].data(),
             rays.dirs[ray_id].data(),
-            rays.depths[ray_id]);
+            rays.depths[ray_id].data());
     calc_sphfunc(grid, lane_id,
                  ray_id,
                  ray_spec[ray_blk_id].dir,
@@ -356,7 +356,7 @@ __global__ void render_ray_backward_kernel(
         TRACE_RAY_CUDA_RAYS_PER_BLOCK];
     ray_spec[ray_blk_id].set(rays.origins[ray_id].data(),
                              rays.dirs[ray_id].data(),
-                             rays.depths[ray_id]);
+                             rays.depths[ray_id].data());
     const float vdir[3] = {ray_spec[ray_blk_id].dir[0],
                      ray_spec[ray_blk_id].dir[1],
                      ray_spec[ray_blk_id].dir[2] };

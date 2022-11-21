@@ -71,9 +71,9 @@ class DatasetBase:
         avg_depth = torch.mean(self.depths)
         print("Avg depth = ", avg_depth)
 
-        depths = self.depths.reshape(-1)
+        depths = self.depths.reshape(-1, 1)
         assert origins.size(dim=0) == depths.size(dim=0)
-        assert depths.dim() == 1
+        assert depths.dim() == 2
 
         self.rays_init = Rays(origins=origins, dirs=dirs, gt=gt, depths=depths)
         self.rays = self.rays_init

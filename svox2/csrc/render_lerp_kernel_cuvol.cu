@@ -341,7 +341,7 @@ __device__ __inline__ void trace_ray_cuvol_backward(
             accum -= weight * total_color;
             float curr_grad_sigma = ray.world_step * (
                     total_color * _EXP(log_transmit) - accum);
-            if (sparsity_loss > 0.f && ray.depth - 0.05 > t) {
+            if (sparsity_loss > 0.f && ray.depth[0] - 0.05 > t) {
                 // Cauchy version (from SNeRG)
                 curr_grad_sigma += sparsity_loss * (4 * sigma / (1 + 2 * (sigma * sigma)));
 
@@ -628,7 +628,7 @@ __global__ void render_ray_kernel(
         TRACE_RAY_CUDA_RAYS_PER_BLOCK];
     ray_spec[ray_blk_id].set(rays.origins[ray_id].data(),
             rays.dirs[ray_id].data(),
-            rays.depths[ray_id]);
+            rays.depths[ray_id].data());
     calc_sphfunc(grid, lane_id,
                  ray_id,
                  ray_spec[ray_blk_id].dir,
@@ -718,7 +718,7 @@ __global__ void render_ray_backward_kernel(
         TRACE_RAY_CUDA_RAYS_PER_BLOCK];
     ray_spec[ray_blk_id].set(rays.origins[ray_id].data(),
                              rays.dirs[ray_id].data(),
-                             rays.depths[ray_id]);
+                             rays.depths[ray_id].data());
     const float vdir[3] = {ray_spec[ray_blk_id].dir[0],
                      ray_spec[ray_blk_id].dir[1],
                      ray_spec[ray_blk_id].dir[2] };
@@ -783,7 +783,7 @@ __global__ void render_background_kernel(
         torch::PackedTensorAccessor32<float, 2, torch::RestrictPtrTraits> out) {
     CUDA_GET_THREAD_ID(ray_id, int(rays.origins.size(0)));
     if (log_transmit[ray_id] < -25.f) return;
-    SingleRaySpec ray_spec(rays.origins[ray_id].data(), rays.dirs[ray_id].data(), rays.depths[ray_id]);
+    SingleRaySpec ray_spec(rays.origins[ray_id].data(), rays.dirs[ray_id].data(), rays.depths[ray_id].data());
     ray_find_bounds_bg(ray_spec, grid, opt, ray_id);
     render_background_forward(
         grid,
@@ -831,7 +831,7 @@ __global__ void render_background_backward_kernel(
         PackedGridOutputGrads grads) {
     CUDA_GET_THREAD_ID(ray_id, int(rays.origins.size(0)));
     if (log_transmit[ray_id] < -25.f) return;
-    SingleRaySpec ray_spec(rays.origins[ray_id].data(), rays.dirs[ray_id].data(), rays.depths[ray_id]);
+    SingleRaySpec ray_spec(rays.origins[ray_id].data(), rays.dirs[ray_id].data(), rays.depths[ray_id].data());
     ray_find_bounds_bg(ray_spec, grid, opt, ray_id);
 
     float grad_out[3];
@@ -871,7 +871,7 @@ __global__ void render_ray_expected_term_kernel(
         // const RenderOptions& __restrict__ opt,
         // float* __restrict__ out) {
     CUDA_GET_THREAD_ID(ray_id, rays.origins.size(0));
-    SingleRaySpec ray_spec(rays.origins[ray_id].data(), rays.dirs[ray_id].data(), rays.depths[ray_id]);
+    SingleRaySpec ray_spec(rays.origins[ray_id].data(), rays.dirs[ray_id].data(), rays.depths[ray_id].data());
     ray_find_bounds(ray_spec, grid, opt, ray_id);
     trace_ray_expected_term(
         grid,
@@ -892,7 +892,7 @@ __global__ void render_ray_sigma_thresh_kernel(
         // const RenderOptions& __restrict__ opt,
         // float* __restrict__ out) {
     CUDA_GET_THREAD_ID(ray_id, rays.origins.size(0));
-    SingleRaySpec ray_spec(rays.origins[ray_id].data(), rays.dirs[ray_id].data(), rays.depths[ray_id]);
+    SingleRaySpec ray_spec(rays.origins[ray_id].data(), rays.dirs[ray_id].data(), rays.depths[ray_id].data());
     ray_find_bounds(ray_spec, grid, opt, ray_id);
     trace_ray_sigma_thresh(
         grid,

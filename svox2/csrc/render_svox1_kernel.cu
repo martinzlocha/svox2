@@ -11,14 +11,14 @@ namespace {
 namespace device {
 // From old version (name is hacky whatever)
 struct BasicSingleRaySpec {
-    __device__ BasicSingleRaySpec(const float* __restrict__ origin, const float* __restrict__ dir, const float depth)
+    __device__ BasicSingleRaySpec(const float* __restrict__ origin, const float* __restrict__ dir, const float* __restrict__ depth)
         : origin{origin[0], origin[1], origin[2]},
         dir{dir[0], dir[1], dir[2]},
         vdir(dir),
-        depth(depth) {}
+        depth{depth[0]} {}
     float origin[3];
     float dir[3];
-    float depth;
+    float depth[1];
     const float* __restrict__ vdir;
 };
 
