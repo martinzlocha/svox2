@@ -49,7 +49,8 @@ class DatasetBase:
         yy = (yy - self.intrins.cy) / self.intrins.fy
         zz = -torch.ones_like(xx)
         dirs = torch.stack((xx, yy, zz), dim=-1)  # OpenCV convention
-        dirs /= torch.norm(dirs, dim=-1, keepdim=True)
+        dirs_norm = torch.norm(dirs, dim=-1, keepdim=True)
+        dirs /= dirs_norm
         dirs = dirs.reshape(1, -1, 3, 1)
         del xx, yy, zz
         dirs = (self.c2w[:, None, :3, :3] @ dirs)[..., 0]
@@ -71,7 +72,8 @@ class DatasetBase:
         avg_depth = torch.mean(self.depths)
         print("Avg depth = ", avg_depth)
 
-        depths = self.depths.reshape(-1, 1)
+        depths = self.depths.reshape(-1, 1) / dirs_norm.reshape(-1, 1)
+        del dirs_norm
         assert origins.size(dim=0) == depths.size(dim=0)
         assert depths.dim() == 2
 
