@@ -1,6 +1,6 @@
 from functools import partial
 import json
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 import numpy as np
 import open3d as o3d
 import open3d.visualization.gui as gui
@@ -21,13 +21,15 @@ def to_absolute_path(path: str, parent_dir: Optional[str] = None) -> str:
         return os.path.join(parent_dir, path)
 
 
-class Camera:
-    def __init__(self, name: str, camera_transform: np.ndarray, w: float = 0.19, h: float = 0.1, s: float=0.0):
-        self.name = name
-        self.camera_transform = camera_transform
-        length = w * 2
+def construct_cameras_geometry(transforms: List[np.ndarray]) -> o3d.geometry.LineSet:
+    w: float = 0.19
+    h: float = 0.1
+    length = w * 2
+    vertices = []
+    lines = []
 
-        vertices = np.array([
+    for i, transform in enumerate(transforms):
+        camera_vertices = np.array([
             [ 0,    0,    0,  1],
             [ w,  h, -length, 1], # top right
             [ w, -h, -length, 1], # bottom right
@@ -35,8 +37,8 @@ class Camera:
             [-w,  h, -length, 1], # top left
             [ 0, 1.5 * h, -length, 1], # corner
         ])
-
-        lines = np.array([
+        camera_vertices = camera_vertices @ transform.T
+        camera_lines = np.array([
             [0, 1],
             [0, 2],
             [0, 3],
@@ -48,24 +50,28 @@ class Camera:
             [5, 1],
             [5, 4],
         ])
+        camera_lines = camera_lines + len(vertices) * 6
 
-        vertices = vertices @ camera_transform.T
+        vertices.append(camera_vertices)
+        lines.append(camera_lines)
 
-        self.geometry = o3d.geometry.LineSet(o3d.utility.Vector3dVector(vertices[:, :3]), o3d.utility.Vector2iVector(lines))
-        # self.geometry.transform(self.camera_transform)
+    vertices = np.concatenate(vertices, axis=0)
+    lines = np.concatenate(lines, axis=0)
 
+    geometry = o3d.geometry.LineSet(o3d.utility.Vector3dVector(vertices[:, :3]), o3d.utility.Vector2iVector(lines))
 
-        self.geometry.paint_uniform_color((0.0, 0.0, 1.0))
+    # generate 3 random numbers between 0 and 1
+    color = np.random.rand(3)
+    geometry.paint_uniform_color(color)
 
-    def get_complete_transform_matrix(self, matrix):
-        return matrix @ self.camera_transform
+    return geometry
 
 
 class VizApplication:
     def __init__(self,
                  dataset_dir: str,
                  grid_dir: Optional[str] = None):
-        potential_transforms_files = ["transforms_train.json", "transforms_test.json", "transforms_train_original.json", "transforms_test_original.json"]
+        potential_transforms_files = ["transforms_train.json", "transforms_test.json", "transforms_train_original.json", "transforms_test_original.json", "transforms_train_original_shifted.json"]
         transforms_files = [f for f in os.listdir(dataset_dir) if f in potential_transforms_files]
 
         self.transforms = {}
@@ -75,14 +81,11 @@ class VizApplication:
 
             self.transforms[transform_file] = [np.asarray(frame["transform_matrix"]) for frame in transforms["frames"]]
 
-        self.cameras = {}
+        self.camera_geometries = {}
 
         print("Building cameras...")
         for transform_name, transforms in self.transforms.items():
-            self.cameras[transform_name] = []
-            for i, transform in enumerate(transforms):
-                camera = Camera(f"camera_{i}_{transform_name}", transform)
-                self.cameras[transform_name].append(camera)
+            self.camera_geometries[transform_name] = (construct_cameras_geometry(transforms))
 
         print("Building the window...")
         # NOW THE WINDOW
@@ -98,8 +101,9 @@ class VizApplication:
             100000)  # intensity
         self.scene.scene.scene.enable_sun_light(True)
 
-        material = rendering.MaterialRecord()
-        material.shader = "defaultUnlit"
+        self.pcd_material = rendering.MaterialRecord()
+        self.pcd_material.shader = "defaultUnlit"
+        self.pcd_material.point_size = 5.0
 
         line_material = rendering.MaterialRecord()
         line_material.shader = "unlitLine"
@@ -112,11 +116,7 @@ class VizApplication:
         self.scene.setup_camera(60, bbox, [0, 0, 0])
 
         em = self.window.theme.font_size
-        self.settings_panel = self._get_settings_panel(em)
 
-        self.window.set_on_layout(self._on_layout)
-        self.window.add_child(self.scene)
-        self.window.add_child(self.settings_panel)
 
         # self.scene.scene.add_geometry("grid", self.coordinates_grid, grid_material)
         if grid_dir is not None:
@@ -127,20 +127,29 @@ class VizApplication:
 
 
         print("Adding cameras geometry...")
-        for transform_name, cameras in self.cameras.items():
-            for camera in cameras:
-                self.scene.scene.add_geometry(camera.name, camera.geometry, line_material)
-                self.scene.scene.show_geometry(camera.name, False)
+        for transform_name, geometry in self.camera_geometries.items():
+            self.scene.scene.add_geometry(f"cam_{transform_name}", geometry, line_material)
+            self.scene.scene.show_geometry(f"cam_{transform_name}", False)
+
+        self.pointclouds: Dict[str, Pointcloud] = {}
 
         for transform_name in transforms_files:
             print(f"Adding {transform_name} pointcloud geometry...")
             pointcloud = Pointcloud.from_dataset(dataset_dir, [transform_name])
-            self.scene.scene.add_geometry(f"pcd_{transform_name}", pointcloud.get_pruned_pointcloud(MAX_POINTCLOUD_POINTS).to_open3d(), material)
+            self.pointclouds[transform_name] = pointcloud
+            self.scene.scene.add_geometry(f"pcd_{transform_name}", pointcloud.get_pruned_pointcloud(MAX_POINTCLOUD_POINTS).to_open3d(), self.pcd_material)
             self.scene.scene.show_geometry(f"pcd_{transform_name}", False)
+
 
         print("Adding unit cube geometry...")
         self.scene.scene.add_geometry("unit_cube", self._get_unit_cube_mesh(radius=1.), line_material)
         print("rendering now!")
+
+        self.window.set_on_layout(self._on_layout)
+        self.window.add_child(self.scene)
+        self.settings_panel = self._get_settings_panel(em)
+        self.window.add_child(self.settings_panel)
+
 
     def _show_grid(self, grid: Dict[str, np.ndarray], line_material) -> None:
         side_radius = grid['side_length'] / 2
@@ -247,9 +256,62 @@ class VizApplication:
             cb.set_on_checked(partial(self._on_check_pcd, transform_name=transform_name))
             pointcloud_selection.add_child(cb)
 
-
         settings_panel.add_fixed(separation_height)
         settings_panel.add_child(pointcloud_selection)
+
+        frame_by_frame = gui.CollapsableVert("Frame by Frame", 0.25 * em,
+                                         gui.Margins(em, 0, 0, 0))
+
+        rb = gui.RadioButton(gui.RadioButton.VERT)
+        rb.set_items(list(map(str, self.pointclouds.keys())))
+        rb.set_on_selection_changed(self._on_frame_by_frame_select)
+        frame_by_frame.add_child(rb)
+        self._current_slider_pointcloud_idx = None
+
+        def get_slider(object_name):
+            slider_row = gui.Horiz(0.25 * em)
+            slider = gui.Slider(gui.Slider.INT)
+            slider.set_limits(0, 1)
+            slider.set_on_value_changed(partial(self._on_frame_by_frame_slider_change, object_name=object_name))
+
+            minus_button = gui.Button("-")
+            minus_button.set_on_clicked(partial(self._rewind_slider_pointcloud, object_name=object_name))
+
+            plus_button = gui.Button("+")
+            plus_button.set_on_clicked(partial(self._forward_slider_pointcloud, object_name=object_name))
+
+            slider_row.add_child(minus_button)
+            slider_row.add_child(slider)
+            slider_row.add_child(plus_button)
+
+            return slider_row, slider
+
+        slider_row_1, self.frame_by_frame_slider_1 = get_slider('first_slider_object')
+        slider_row_2, self.frame_by_frame_slider_2 = get_slider('second_slider_object')
+
+        frame_by_frame.add_child(slider_row_1)
+        frame_by_frame.add_child(slider_row_2)
+
+
+        forward_button = gui.Button(">>")
+        forward_button.horizontal_padding_em = 0.5
+        forward_button.vertical_padding_em = 0
+        forward_button.set_on_clicked(self._forward_slider_pointclouds)
+        rewind_button = gui.Button("<<")
+        rewind_button.horizontal_padding_em = 0.5
+        rewind_button.vertical_padding_em = 0
+        rewind_button.set_on_clicked(self._rewind_slider_pointclouds)
+
+        row = gui.Horiz(0.25 * em)
+        row.add_stretch()
+        row.add_child(rewind_button)
+        row.add_child(forward_button)
+        row.add_stretch()
+
+        frame_by_frame.add_child(row)
+
+        settings_panel.add_fixed(separation_height)
+        settings_panel.add_child(frame_by_frame)
 
         unit_cube = gui.CollapsableVert("Unit Cube", 0.25 * em,
                                          gui.Margins(em, 0, 0, 0))
@@ -310,9 +372,62 @@ class VizApplication:
         return unit_cube
 
     def _on_check(self, is_checked: bool, transform_name: str):
-        cameras = self.cameras[transform_name]
-        for camera in cameras:
-            self.scene.scene.show_geometry(camera.name, is_checked)
+        self.scene.scene.show_geometry(f"cam_{transform_name}", is_checked)
+
+    def _on_frame_by_frame_select(self, idx):
+        pointcloud_key = list(self.pointclouds.keys())[idx]
+        pointcloud = self.pointclouds[pointcloud_key]
+        n_frames = pointcloud._n_frames
+        assert n_frames is not None
+        self.frame_by_frame_slider_1.set_limits(0, n_frames - 1)
+        self.frame_by_frame_slider_1.int_value = 0
+        self.frame_by_frame_slider_2.set_limits(0, n_frames - 1)
+        self.frame_by_frame_slider_2.int_value = 0
+
+        self._current_slider_pointcloud_idx = idx
+
+        self._on_frame_by_frame_slider_change(0, 'first_slider_object')
+        self._on_frame_by_frame_slider_change(0, 'second_slider_object')
+
+    def _on_frame_by_frame_slider_change(self, value, object_name: str):
+        if self._current_slider_pointcloud_idx is None:
+            return
+
+        value = int(value)
+        pointcloud_key = list(self.pointclouds.keys())[self._current_slider_pointcloud_idx]
+        pointcloud = self.pointclouds[pointcloud_key]
+        self.scene.scene.remove_geometry(f"{object_name}")
+
+        self.scene.scene.add_geometry(f"{object_name}", pointcloud.from_frame(value).to_open3d(), self.pcd_material)
+
+    def _forward_slider_pointcloud(self, object_name: str):
+        if self._current_slider_pointcloud_idx is None:
+            return
+
+        pointcloud_key = list(self.pointclouds.keys())[self._current_slider_pointcloud_idx]
+        pointcloud = self.pointclouds[pointcloud_key]
+        n_frames = pointcloud._n_frames
+        assert n_frames is not None
+
+        slider = self.frame_by_frame_slider_1 if object_name == 'first_slider_object' else self.frame_by_frame_slider_2
+        slider.int_value = min(n_frames-1, slider.int_value + 1)  # set the value
+        self._on_frame_by_frame_slider_change(min(n_frames-1, slider.int_value + 1), object_name)
+
+    def _rewind_slider_pointcloud(self, object_name: str):
+        if self._current_slider_pointcloud_idx is None:
+            return
+
+        slider = self.frame_by_frame_slider_1 if object_name == 'first_slider_object' else self.frame_by_frame_slider_2
+        slider.int_value = max(0, slider.int_value - 1)  # set the value
+        self._on_frame_by_frame_slider_change(max(0, slider.int_value - 1), object_name)
+
+    def _forward_slider_pointclouds(self):
+        self._forward_slider_pointcloud('first_slider_object')
+        self._forward_slider_pointcloud('second_slider_object')
+
+    def _rewind_slider_pointclouds(self):
+        self._rewind_slider_pointcloud('first_slider_object')
+        self._rewind_slider_pointcloud('second_slider_object')
 
     def _on_check_pcd(self, is_checked: bool, transform_name: str):
         self.scene.scene.show_geometry(f"pcd_{transform_name}", is_checked)
