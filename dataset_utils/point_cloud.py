@@ -9,6 +9,7 @@ import imageio
 import cv2
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor
+import open3d as o3d
 
 DEPTH_DIR = "depth"
 IMAGE_DIR = "images"
@@ -123,6 +124,9 @@ class Pointcloud:
     def __init__(self, points: torch.Tensor, features: Optional[torch.Tensor]=None):
         self.points = points
         self.features = features
+        self._from_frame_available = False
+        self._n_frames = None
+        self._frame_order = None
 
     @classmethod
     def from_dataset(cls, dataset_path: str,
@@ -135,6 +139,9 @@ class Pointcloud:
 
         points_list: List[torch.Tensor] = []
         features_list: List[torch.Tensor] = []
+        frame_ids = []
+
+        _from_frame_available = len(transforms_to_load) == 1
 
         for transforms_name in transforms_to_load:
             transforms_file = os.path.join(dataset_path, f"{transforms_name}")
@@ -150,6 +157,7 @@ class Pointcloud:
             points, features = zip(*points_features)
             points_list.extend(points)
             features_list.extend(features)
+            frame_ids.extend([frame["image_id"] for frame in transforms["frames"]])
 
             # for i, frame in enumerate(tqdm(transforms["frames"], desc=f"Loading {transforms_name} pointcloud")):
             #     points, features = _get_points_and_features(frame, dataset_path, images_dir, depths_dir, camera_angle_x, clipping_distance)
@@ -160,7 +168,13 @@ class Pointcloud:
         points = torch.cat(points_list, dim=0)
         features = torch.cat(features_list, dim=0)
 
-        return cls(points=points, features=features)
+        point_cloud = cls(points, features)
+        if _from_frame_available:
+            point_cloud._from_frame_available = True
+            point_cloud._n_frames = len(frame_ids)
+            point_cloud._frame_order = frame_ids
+
+        return point_cloud
 
     def fit_to_unit_cube(self) -> torch.Tensor:
         """
@@ -209,7 +223,6 @@ class Pointcloud:
         transform = scale_matrix @ transform
         return transform
 
-
     def get_centre_of_mass(self) -> torch.Tensor:
         return self.points.mean(dim=0)
 
@@ -225,3 +238,33 @@ class Pointcloud:
         idx = torch.randperm(self.points.shape[0])[:n_points]
         features = self.features[idx] if self.features is not None else None
         return Pointcloud(points=self.points[idx], features=features)
+
+    def from_frame(self, idx: int) -> 'Pointcloud':
+        """
+        Returns a pointcloud with only the points from the frame with index idx.
+        """
+        if not self._from_frame_available:
+            raise ValueError("Cannot access frames from this pointcloud. Did you load multiple transform files?")
+
+        assert self._n_frames is not None
+
+        start_idx = idx * self.points.shape[0] // self._n_frames
+        end_idx = (idx + 1) * self.points.shape[0] // self._n_frames
+
+        points = self.points[start_idx:end_idx]
+        features = self.features[start_idx:end_idx] if self.features is not None else None
+
+        return Pointcloud(points=points, features=features)
+
+    def to_open3d(self) -> o3d.geometry.PointCloud:
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(self.points.numpy())
+
+        features = self.features
+        if features is None:
+            features = np.ones((self.points.shape[0], 3))
+        else:
+            features = features.numpy() / 255
+
+        pcd.colors = o3d.utility.Vector3dVector(features)
+        return pcd

@@ -21,20 +21,6 @@ def to_absolute_path(path: str, parent_dir: Optional[str] = None) -> str:
         return os.path.join(parent_dir, path)
 
 
-def get_o3d_pointcloud(pointcloud: Pointcloud) -> o3d.geometry.PointCloud:
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(pointcloud.points.numpy())
-
-    features = pointcloud.features
-    if features is None:
-        features = np.ones((pointcloud.points.shape[0], 3))
-    else:
-        features = features.numpy() / 255
-
-    pcd.colors = o3d.utility.Vector3dVector(features)
-    return pcd
-
-
 class Camera:
     def __init__(self, name: str, camera_transform: np.ndarray, w: float = 0.19, h: float = 0.1, s: float=0.0):
         self.name = name
@@ -149,14 +135,14 @@ class VizApplication:
         for transform_name in transforms_files:
             print(f"Adding {transform_name} pointcloud geometry...")
             pointcloud = Pointcloud.from_dataset(dataset_dir, [transform_name])
-            self.scene.scene.add_geometry(f"pcd_{transform_name}", get_o3d_pointcloud(pointcloud.get_pruned_pointcloud(MAX_POINTCLOUD_POINTS)), material)
+            self.scene.scene.add_geometry(f"pcd_{transform_name}", pointcloud.get_pruned_pointcloud(MAX_POINTCLOUD_POINTS).to_open3d(), material)
             self.scene.scene.show_geometry(f"pcd_{transform_name}", False)
 
         print("Adding unit cube geometry...")
         self.scene.scene.add_geometry("unit_cube", self._get_unit_cube_mesh(radius=1.), line_material)
         print("rendering now!")
 
-    def _show_grid(self, grid: Dict[str, np.array], line_material) -> None:
+    def _show_grid(self, grid: Dict[str, np.ndarray], line_material) -> None:
         side_radius = grid['side_length'] / 2
         mesh = o3d.geometry.LineSet()
         print('sum of den', grid['densities'].min())
@@ -177,7 +163,7 @@ class VizApplication:
             [0, 1], [0, 2], [0, 4], [1, 3], [1, 5], [2, 3], [2, 6], [3, 7], [4, 5], [4, 6], [5, 7], [6, 7]
         ])
 
-        
+
         location_count = locations.shape[0]
         locations_repeated = np.repeat(locations, 8, 0)
         cube_edges = np.tile(cube_edges, [location_count, 1])
@@ -191,7 +177,7 @@ class VizApplication:
         mesh.points = o3d.utility.Vector3dVector(cube_edges)
         mesh.lines = o3d.utility.Vector2iVector(cube_lines)
         mesh.paint_uniform_color((0., 0., 1.))
-        
+
         self.scene.scene.add_geometry("mesh", mesh, line_material)
 
 
@@ -311,7 +297,7 @@ class VizApplication:
                                          ey + translation[1],
                                          ez + translation[2]])
             cube_edges = translated_edges
-                
+
 
         # get vertices of a unit cube with center at origin
         unit_cube.points = o3d.utility.Vector3dVector(cube_edges)
