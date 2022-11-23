@@ -388,13 +388,12 @@ lr_sh_factor = 1.0
 lr_basis_factor = 1.0
 
 last_upsamp_step = args.init_iters
-pc_point_count = 400000
-pc_orig = load_pointcloud()
-pc_large = pc_orig.get_pruned_pointcloud(pc_point_count * 2)
+pc_point_count = 1000000
+pc_orig = load_pointcloud(args.data_dir)
 pc = pc_orig.get_pruned_pointcloud(pc_point_count)
 pc_points = pc.points.cuda()
 negative_points = torch.rand([pc_point_count, 3]).cuda() * 0.2 - 0.1
-pc_keep_points = pc_large.points.cuda()
+pc_keep_points = pc.points.cuda()
 
 def set_grid_density(grid: svox2.svox2.SparseGrid,
                     points: torch.Tensor,
@@ -449,7 +448,7 @@ def get_links(points):
 #optimal_density = get_links(pc_points)
 #neg_optimal_density = get_links(negative_points)
 set_grid_density(grid, pc_keep_points)
-grid.save_voxels_to_dict(ckpt_path)
+# grid.save_voxels_to_dict(ckpt_path)
 
 
 if args.enable_random:
@@ -788,7 +787,7 @@ while True:
             factor, args.save_every) == 0 and not args.tune_mode):
         print('Saving', ckpt_path)
         grid.save(ckpt_path)
-        grid.save_voxels_to_dict(ckpt_path)
+        # grid.save_voxels_to_dict(ckpt_path)
 
     if (gstep_id_base - last_upsamp_step) >= args.upsamp_every:
         last_upsamp_step = gstep_id_base
@@ -835,7 +834,7 @@ while True:
         timings_file.write(f"{secs / 60}\n")
         if not args.tune_nosave:
             grid.save(ckpt_path)
-            grid.save_voxels_to_dict(ckpt_path)
+            # grid.save_voxels_to_dict(ckpt_path)
         break
 
 
