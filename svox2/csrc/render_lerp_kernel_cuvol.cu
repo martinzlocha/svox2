@@ -341,6 +341,7 @@ __device__ __inline__ void trace_ray_cuvol_backward(
             accum -= weight * total_color;
             float curr_grad_sigma = ray.world_step * (
                     total_color * _EXP(log_transmit) - accum);
+            printf("tmin %f, tmax %f, depth %f, t %f, t norm %f \n", ray.tmin, ray.tmax, ray.depth[0], t, t / (opt.step_size * grid.size[2]));
             if (sparsity_loss > 0.f && ray.depth[0] - 0.05 > t / (opt.step_size * grid.size[2])) {
                 // Cauchy version (from SNeRG)
                 curr_grad_sigma += sparsity_loss * (4 * sigma / (1 + 2 * (sigma * sigma)));
