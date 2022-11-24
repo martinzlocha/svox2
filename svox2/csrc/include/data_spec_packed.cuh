@@ -106,7 +106,7 @@ struct PackedRaysSpec {
     PackedRaysSpec(RaysSpec& spec) :
         origins(spec.origins.packed_accessor32<float, 2, torch::RestrictPtrTraits>()),
         dirs(spec.dirs.packed_accessor32<float, 2, torch::RestrictPtrTraits>()),
-        depths(spec.dirs.packed_accessor32<float, 2, torch::RestrictPtrTraits>())
+        depths(spec.depths.packed_accessor32<float, 2, torch::RestrictPtrTraits>())
     { }
 };
 

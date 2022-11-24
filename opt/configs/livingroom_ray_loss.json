@@ -21,6 +21,5 @@
   "white_bkgd": false,
   "background_brightness": 0.5,
   "use_depth": true,
-  "init_from_point_cloud": false,
-  "batch_size": 1
+  "init_from_point_cloud": false
 }
