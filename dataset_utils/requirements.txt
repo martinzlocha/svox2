@@ -5,3 +5,4 @@ numpy
 opencv-python
 torch
 tqdm
+opencv-contrib-python
