@@ -6,7 +6,7 @@ import open3d as o3d
 import open3d.visualization.gui as gui
 import open3d.visualization.rendering as rendering
 import os
-from point_cloud import Pointcloud
+from point_cloud import Pointcloud_DEPRECATED
 import torch
 from fire import Fire
 
@@ -131,11 +131,11 @@ class VizApplication:
             self.scene.scene.add_geometry(f"cam_{transform_name}", geometry, line_material)
             self.scene.scene.show_geometry(f"cam_{transform_name}", False)
 
-        self.pointclouds: Dict[str, Pointcloud] = {}
+        self.pointclouds: Dict[str, Pointcloud_DEPRECATED] = {}
 
         for transform_name in transforms_files:
             print(f"Adding {transform_name} pointcloud geometry...")
-            pointcloud = Pointcloud.from_dataset(dataset_dir, [transform_name])
+            pointcloud = Pointcloud_DEPRECATED.from_dataset(dataset_dir, [transform_name])
             self.pointclouds[transform_name] = pointcloud
             self.scene.scene.add_geometry(f"pcd_{transform_name}", pointcloud.get_pruned_pointcloud(MAX_POINTCLOUD_POINTS).to_open3d(), self.pcd_material)
             self.scene.scene.show_geometry(f"pcd_{transform_name}", False)
