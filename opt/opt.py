@@ -197,7 +197,8 @@ group.add_argument('--tune_mode', action='store_true', default=False,
                    help='hypertuning mode (do not save, for speed)')
 group.add_argument('--tune_nosave', action='store_true', default=False,
                    help='do not save any checkpoint even at the end')
-
+group.add_argument('--init_from_point_cloud', action='store_true', default=True,
+                   help='Initialize voxels from point cloud')
 
 
 group = parser.add_argument_group("losses")
@@ -388,12 +389,6 @@ lr_sh_factor = 1.0
 lr_basis_factor = 1.0
 
 last_upsamp_step = args.init_iters
-pc_point_count = 1000000
-pc_orig = load_pointcloud(args.data_dir)
-pc = pc_orig.get_pruned_pointcloud(pc_point_count)
-pc_points = pc.points.cuda()
-negative_points = torch.rand([pc_point_count, 3]).cuda() * 0.2 - 0.1
-pc_keep_points = pc.points.cuda()
 
 def set_grid_density(grid: svox2.svox2.SparseGrid,
                     points: torch.Tensor,
@@ -445,10 +440,17 @@ def get_links(points):
     
     return (links000, links001, links010, links011, links100, links101, links110, links111), (wa, wb)
 
-#optimal_density = get_links(pc_points)
-#neg_optimal_density = get_links(negative_points)
-set_grid_density(grid, pc_keep_points)
-# grid.save_voxels_to_dict(ckpt_path)
+if args.init_from_point_cloud:
+    pc_point_count = 1000000
+    pc_orig = load_pointcloud(args.data_dir)
+    pc = pc_orig.get_pruned_pointcloud(pc_point_count)
+    pc_points = pc.points.cuda()
+    negative_points = torch.rand([pc_point_count, 3]).cuda() * 0.2 - 0.1
+    pc_keep_points = pc.points.cuda()
+    #optimal_density = get_links(pc_points)
+    #neg_optimal_density = get_links(negative_points)
+    set_grid_density(grid, pc_keep_points)
+    # grid.save_voxels_to_dict(ckpt_path)
 
 
 if args.enable_random:
