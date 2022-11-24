@@ -464,12 +464,7 @@ if args.enable_random:
     warn("Randomness is enabled for training (normal for LLFF & scenes with background)")
 
 epoch_id = -1
-grid.resample(reso=reso_list[0],
-                sigma_thresh=args.density_thresh,
-                weight_thresh=args.weight_thresh / reso_list[0][2],
-                dilate=1,
-                cameras=resample_cameras if args.thresh_type == 'weight' else None,
-                max_elements=args.max_grid_elements)
+
 while True:
     dset.shuffle_rays()
     epoch_id += 1
