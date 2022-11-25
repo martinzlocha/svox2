@@ -4,7 +4,7 @@ import os
 import numpy as np
 from typing import Dict, Literal, Optional
 
-from point_cloud import Pointcloud
+from point_cloud import Pointcloud_DEPRECATED
 DEPTH_DIR = "depth"
 IMAGE_DIR = "images"
 ORIGINAL_SUFFIX = "_original"
@@ -64,7 +64,7 @@ def transform_frame(frame: Dict, transform_matrix: np.ndarray) -> Dict:
 def main(dataset_path: str, scaling=Literal["cube", "sphere"], clipping_distance: Optional[float] = None) -> None:
     _raise_if_invalid_dataset(dataset_path)
     transforms = ["transforms_train.json", "transforms_test.json"]
-    point_cloud = Pointcloud.from_dataset(dataset_path, transforms, clipping_distance=clipping_distance)
+    point_cloud = Pointcloud_DEPRECATED.from_dataset(dataset_path, transforms, clipping_distance=clipping_distance)
 
     if scaling == "cube":
         transform_to_fit = point_cloud.fit_to_unit_cube()
