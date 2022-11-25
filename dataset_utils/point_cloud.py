@@ -11,7 +11,7 @@ from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor
 import open3d as o3d
 import open3d.core as o3c
-from .utils import get_rays, img_file_path_from_frame, depth_file_path_from_frame, load_depth_file
+from utils import get_rays, img_file_path_from_frame, depth_file_path_from_frame, load_depth_file
 
 DEPTH_DIR = "depth"
 IMAGE_DIR = "images"
@@ -73,11 +73,14 @@ class Pointcloud:
         if colors is not None and points.shape != colors.shape:
             raise ValueError(f"points.shape: {points.shape}, colors.shape: {colors.shape}")
 
-        self._points = points
+        self._points = points.astype(np.float32)
+        if colors is not None:
+            colors = colors.astype(np.float32)
         self._colors = colors
 
         self._open3d_pcd = None
         self._open3d_tensor_pcd = None
+        self._centre_of_mass = None
 
     def as_numpy(self) -> Tuple[np.ndarray, Optional[np.ndarray]]:
         """
@@ -113,11 +116,11 @@ class Pointcloud:
             return self._open3d_tensor_pcd.to(device)
 
         pcd = o3d.t.geometry.PointCloud(device)
-        pcd.point.positions = o3c.Tensor(self._points, device=device)
+        pcd.point.positions = o3c.Tensor(self._points, device=device, dtype=o3c.Dtype.Float32)
         if self._colors is not None:
-            pcd.point.colors = o3c.Tensor(np.asarray(self._colors), device=device)
+            pcd.point.colors = o3c.Tensor(np.asarray(self._colors), device=device, dtype=o3c.Dtype.Float32)
 
-        pcd.estimate_normals(max_nn=30, radius=0.15)
+        # pcd.estimate_normals(max_nn=30, radius=0.15)
         self._open3d_tensor_pcd = pcd
 
         return pcd
@@ -128,16 +131,20 @@ class Pointcloud:
         """
         # for performance, we might want to store everything as open3d tensor pointclouds
         points = self._points.reshape(-1, 3, 1)
-        self._points = transformation_matrix @ points
-        self._points = self._points.reshape(-1, 3)
+        points = np.concatenate([points, np.ones((points.shape[0], 1, 1))], axis=1)
+        points = transformation_matrix @ points
+        self._points = points[:, :3, 0].reshape(-1, 3)
         self._open3d_pcd = None
+
         self._open3d_tensor_pcd = None
+        self._centre_of_mass = None
 
     @classmethod
-    def from_camera_transform(cls, camera_transform_: np.ndarray, depth_map_: np.ndarray, rgb_: Optional[np.ndarray], focal: float, clipping_distance: Optional[float]=None):
+    def from_camera_transform(cls, camera_transform_: np.ndarray, depth_map_: np.ndarray, rgb_: Optional[np.ndarray], camera_angle_x: float, clipping_distance: Optional[float]=None):
         """
         Create a pointcloud from a depth map and a camera transform.
         """
+
         camera_transform = torch.from_numpy(camera_transform_)
 
         depth_map = torch.from_numpy(depth_map_)
@@ -147,7 +154,9 @@ class Pointcloud:
             rgb_ = cv2.resize(rgb_, (width, height), interpolation=cv2.INTER_CUBIC)
         rgb = torch.from_numpy(rgb_) if rgb_ is not None else None
 
-        rays = get_rays(camera_transform, width, height, focal)
+        focal = float(0.5 * width / np.tan(0.5 * camera_angle_x))
+
+        rays = get_rays(camera_transform.float(), width, height, focal)
 
         if clipping_distance is not None:
             depth_map = torch.clip(depth_map, 0, clipping_distance)
@@ -173,6 +182,35 @@ class Pointcloud:
             raise(ValueError("Cannot add pointclouds with and without colors"))
 
         return Pointcloud(points, colors)
+
+    def centre_of_mass(self):
+        """
+        Returns the centre of mass of the pointcloud
+        """
+        if self._centre_of_mass is not None:
+            return self._centre_of_mass
+
+        centre_of_mass = np.mean(self._points, axis=0)
+        self._centre_of_mass = centre_of_mass
+        return centre_of_mass
+
+
+def stack_pointclouds(pointclouds: List[Pointcloud]) -> Pointcloud:
+    """
+    Stack a list of pointclouds into a single pointcloud
+    """
+    points = np.concatenate([pc._points for pc in pointclouds], axis=0)
+
+    if all(pc._colors is not None for pc in pointclouds):
+        colors = np.concatenate([pc._colors for pc in pointclouds], axis=0)  # type: ignore
+    elif all(pc._colors is None for pc in pointclouds):
+        colors = None
+    else:
+        raise(ValueError("Cannot add pointclouds with and without colors"))
+
+    pcd = Pointcloud(points, colors)
+
+    return pcd
 
 
 class Pointcloud_DEPRECATED:
