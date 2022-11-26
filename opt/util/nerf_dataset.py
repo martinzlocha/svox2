@@ -2,6 +2,7 @@
 from .util import Rays, Intrin, select_or_shuffle_rays
 from .dataset_base import DatasetBase
 import torch
+install pyliblzfse
 import torch.nn.functional as F
 from typing import NamedTuple, Optional, Union
 from os import path
@@ -36,6 +37,14 @@ def load_depth_file(fpath, width, height) -> torch.Tensor:
     depth = cv2.resize(depth, (width, height), interpolation=cv2.INTER_NEAREST)
 
     return torch.from_numpy(depth)
+
+def load_confidence_file(fpath, width, height) -> torch.Tensor:
+    with open(fpath, 'rb') as confidence_fh:
+        raw_bytes = confidence_fh.read()
+        decompressed_bytes = liblzfse.decompress(raw_bytes)
+        confidence_img = np.frombuffer(decompressed_bytes, dtype=np.uint8)
+        confidence_img = cv2.resize(confidence_img, (width, height), interpolation=cv2.INTER_NEAREST)
+    return torch.from_numpy(confidence_img)
 
 
 class NeRFDataset(DatasetBase):
@@ -85,6 +94,7 @@ class NeRFDataset(DatasetBase):
         data_path = path.join(root, split_name)
         data_json = path.join(root, "transforms_" + split_name + ".json")
         depth_data_path = path.join(root, "depth")
+        confidence_data_path = path.join(root, "confidence")
 
         print("MODIFIED LOAD DATA", data_path)
 
@@ -148,6 +158,7 @@ class NeRFDataset(DatasetBase):
         self.intrins_full : Intrin = Intrin(focal, focal, cx, cy)
 
         depth_paths = map(lambda frame: path.join(depth_data_path, path.basename(frame["file_path"]) + ".exr"), j["frames"])
+        confidence_paths = map(lambda frame: path.join(confidence_data_path, path.basename(frame["file_path"]) + ".conf"), j["frames"])
 
         if use_depth and split == 'train':
             with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -156,6 +167,11 @@ class NeRFDataset(DatasetBase):
             depths = torch.stack(depths).float()
             # depths = torch.clip(depths, 0, 2)
             self.depths = depths * scene_scale
+
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                confidences = list(tqdm(executor.map(partial(load_confidence_file, width=self.w_full, height=self.h_full), confidence_paths), total=len(j["frames"])))
+
+            self.confidences = torch.stack(confidences).byte()
 
         self.split = split
         self.scene_scale = scene_scale
