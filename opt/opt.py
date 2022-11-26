@@ -27,7 +27,7 @@ from warnings import warn
 from datetime import datetime
 from torch.utils.tensorboard import SummaryWriter
 
-WANDB_ON=False
+WANDB_ON=True
 
 from tqdm import tqdm
 from typing import NamedTuple, Optional, Union
@@ -922,9 +922,9 @@ if WANDB_ON:
 
         vid = np.transpose(np.array(frames), (0, 3, 1, 2))
 
-        vid_path = os.path.join("/root/videos/", wandb.run.name + ".mp4")
+        vid_path = os.path.join(args.train_dir, wandb.run.name + ".mp4")
         print(f"saving the video {vid_path}")
-        imageio.mimwrite(vid_path, frames, fps=24, macro_block_size=8)
+        imageio.mimwrite(vid_path, frames, fps=6, macro_block_size=8)
 
         wandb.log({
             'final/psnr': avg_psnr,
