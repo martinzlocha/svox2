@@ -2,7 +2,7 @@
 from .util import Rays, Intrin, select_or_shuffle_rays
 from .dataset_base import DatasetBase
 import torch
-install pyliblzfse
+import liblzfse
 import torch.nn.functional as F
 from typing import NamedTuple, Optional, Union
 from os import path
