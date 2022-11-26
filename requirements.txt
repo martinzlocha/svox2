@@ -9,3 +9,5 @@ imageio-ffmpeg>=0.4.7
 lpips>=0.1.4
 moviepy>=1.0.3
 pyliblzfse
+wandb
+lpips
