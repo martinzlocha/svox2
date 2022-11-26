@@ -666,10 +666,20 @@ while True:
             #total_loss -= (aggregate - total_pos) / (grid.density_data.shape[0] - total_cnt)
 
 
+            lambda_sparsity = args.lambda_sparsity
+            if gstep_id >= 64000:
+              lambda_sparsity = args.lambda_sparsity / 10
+            if gstep_id >= 76800:
+              lambda_sparsity = args.lambda_sparsity / 100
+            if gstep_id >= 89600:
+              lambda_sparsity = args.lambda_sparsity / 1000
+            if gstep_id % 12800 == 0:
+              print(f'Lambda sparsity: {lambda_sparsity}')
+
             #  with Timing("volrend_fused"):
             rgb_pred = grid.volume_render_fused(rays, rgb_gt,
                     beta_loss=args.lambda_beta,
-                    sparsity_loss=args.lambda_sparsity,
+                    sparsity_loss=lambda_sparsity,
                     randomize=args.enable_random)
 
             #  with Timing("loss_comp"):
