@@ -154,7 +154,7 @@ class NeRFDataset(DatasetBase):
                 depths = list(tqdm(executor.map(partial(load_depth_file, width=self.w_full, height=self.h_full), depth_paths), total=len(j["frames"])))
 
             depths = torch.stack(depths).float()
-            depths = torch.clip(depths, 0, 2)
+            # depths = torch.clip(depths, 0, 2)
             self.depths = depths * scene_scale
 
         self.split = split
