@@ -11,7 +11,7 @@
   "lambda_tv": 5e-5,
   "lambda_tv_sh": 5e-3,
   "lambda_beta": 1e-5,
-  "lambda_sparsity": 1e-5,
+  "lambda_sparsity": 1e-6,
   "tv_early_only": 0,
   "scale": 0.25,
   "scene_scale": 0.25,

@@ -153,7 +153,9 @@ class NeRFDataset(DatasetBase):
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 depths = list(tqdm(executor.map(partial(load_depth_file, width=self.w_full, height=self.h_full), depth_paths), total=len(j["frames"])))
 
-            self.depths = torch.stack(depths).float() * scene_scale
+            depths = torch.stack(depths).float()
+            depths = torch.clip(depths, 0, 2)
+            self.depths = depths * scene_scale
 
         self.split = split
         self.scene_scale = scene_scale

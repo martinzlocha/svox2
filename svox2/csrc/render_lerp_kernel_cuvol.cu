@@ -341,12 +341,11 @@ __device__ __inline__ void trace_ray_cuvol_backward(
             accum -= weight * total_color;
             float curr_grad_sigma = ray.world_step * (
                     total_color * _EXP(log_transmit) - accum);
-            if (sparsity_loss > 0.f && ray.depth[0] - 0.05 > t / (opt.step_size * grid.size[2])) {
-                // Cauchy version (from SNeRG)
+            if (sparsity_loss > 0.f && ray.depth[0] - 0.1 > t / (opt.step_size * grid.size[2])) {
                 curr_grad_sigma += sparsity_loss * (4 * sigma / (1 + 2 * (sigma * sigma)));
-
-                // Alphs version (from PlenOctrees)
-                // curr_grad_sigma += sparsity_loss * _EXP(-pcnt) * ray.world_step;
+            }
+            if (sparsity_loss > 0.f && ray.depth[0] - 0.1 < t / (opt.step_size * grid.size[2])) {
+                curr_grad_sigma += 1e-11 * (4 * sigma / (1 + 2 * (sigma * sigma)));
             }
             trilerp_backward_cuvol_one(grid.links, grads.grad_sh_out,
                     grid.stride_x,
