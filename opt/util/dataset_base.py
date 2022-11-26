@@ -70,10 +70,11 @@ class DatasetBase:
             gt = gt.reshape(-1, 3)
 
         print(f"Avg depth = {torch.mean(self.depths)}")
-        print(f"Confidence count = {torch.bincount(self.confidences)}")
+        print(f"Confidence count = {torch.bincount(self.confidences.reshape(-1))}")
 
-        depths = self.depths / dirs_norm[None, ...]
+        depths = self.depths
         depths[self.confidences != 2] = 0
+        depths = self.depths / dirs_norm[None, ...]
         depths = depths.reshape(-1, 1)
         del dirs_norm
         assert origins.size(dim=0) == depths.size(dim=0)
