@@ -43,6 +43,7 @@ def load_confidence_file(fpath, width, height) -> torch.Tensor:
         raw_bytes = confidence_fh.read()
         decompressed_bytes = liblzfse.decompress(raw_bytes)
         confidence_img = np.frombuffer(decompressed_bytes, dtype=np.uint8)
+        confidence_img = confidence_img.reshape((256, 192))
         confidence_img = cv2.resize(confidence_img, (width, height), interpolation=cv2.INTER_NEAREST)
     return torch.from_numpy(confidence_img)
 
