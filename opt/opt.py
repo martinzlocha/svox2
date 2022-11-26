@@ -839,6 +839,13 @@ while True:
             factor //= 2
             dset.gen_rays(factor=factor)
             dset.shuffle_rays()
+    else:
+        grid.resample(reso=reso_list[0],
+            sigma_thresh=args.density_thresh,
+            weight_thresh=args.weight_thresh / reso_list[0][2],
+            dilate=1,
+            cameras=resample_cameras if args.thresh_type == 'weight' else None,
+            max_elements=args.max_grid_elements)
 
     if gstep_id_base >= args.n_iters:
         print('* Final eval and save')
