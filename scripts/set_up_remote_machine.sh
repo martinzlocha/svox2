@@ -23,7 +23,8 @@ ssh -A vastai "git clone git@github.com:martinzlocha/svox2.git"
 
 # prepare dir for datsets
 ssh vastai "mkdir datasets"
+ssh vastai "mkdir videos"
 
 echo "installing pytorch and other python libs"
-ssh vastai "cd svox2 && pip install ."
+ssh vastai "cd svox2 && MAX_JOBS=32 pip install ."
 ssh vastai "cd svox2 && pip install -r requirements.txt"
