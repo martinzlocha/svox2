@@ -413,7 +413,10 @@ def set_grid_density(grid: svox2.svox2.SparseGrid,
                 mask = links >= 0
                 links = links[mask].long()
                 link_bincount = torch.bincount(links)
-                idxs = torch.argsort(link_bincount, descending=True)[:25000]
+                link_bincount[link_bincount < 3] = 0
+                keep_links = torch.count_nonzero(link_bincount)
+                print(f"Keeping {keep_links} links")
+                idxs = torch.argsort(link_bincount, descending=True)[:keep_links]
                 optimal_density[idxs] = target_density
     
     grid.density_data = torch.nn.Parameter(optimal_density)
@@ -441,12 +444,13 @@ def get_links(points):
     return (links000, links001, links010, links011, links100, links101, links110, links111), (wa, wb)
 
 if args.init_from_point_cloud:
-    pc_point_count = 1000000
+    pc_point_count = 100000000
     pc_orig = load_pointcloud(args.data_dir)
     pc = pc_orig.get_pruned_pointcloud(pc_point_count)
     pc_points = pc.points.cuda()
     negative_points = torch.rand([pc_point_count, 3]).cuda() * 0.2 - 0.1
     pc_keep_points = pc.points.cuda()
+    print(f"Keep points: {pc_keep_points.size()}")
     #optimal_density = get_links(pc_points)
     #neg_optimal_density = get_links(negative_points)
     set_grid_density(grid, pc_keep_points)
@@ -580,11 +584,11 @@ while True:
             gstep_id = iter_id + gstep_id_base
             if args.lr_fg_begin_step > 0 and gstep_id == args.lr_fg_begin_step:
                 grid.density_data.data[:] = args.init_sigma
-            lr_sigma = lr_sigma_func(gstep_id) * lr_sigma_factor
-            lr_sh = lr_sh_func(gstep_id) * lr_sh_factor
-            lr_basis = lr_basis_func(gstep_id - args.lr_basis_begin_step) * lr_basis_factor
-            lr_sigma_bg = lr_sigma_bg_func(gstep_id - args.lr_basis_begin_step) * lr_basis_factor
-            lr_color_bg = lr_color_bg_func(gstep_id - args.lr_basis_begin_step) * lr_basis_factor
+            lr_sigma = lr_sigma_func(gstep_id - last_upsamp_step) * lr_sigma_factor
+            lr_sh = lr_sh_func(gstep_id - last_upsamp_step) * lr_sh_factor
+            lr_basis = lr_basis_func(gstep_id - last_upsamp_step - args.lr_basis_begin_step) * lr_basis_factor
+            lr_sigma_bg = lr_sigma_bg_func(gstep_id - last_upsamp_step - args.lr_basis_begin_step) * lr_basis_factor
+            lr_color_bg = lr_color_bg_func(gstep_id - last_upsamp_step - args.lr_basis_begin_step) * lr_basis_factor
             if not args.lr_decay:
                 lr_sigma = args.lr_sigma * lr_sigma_factor
                 lr_sh = args.lr_sh * lr_sh_factor
@@ -804,37 +808,36 @@ while True:
         grid.save(ckpt_path)
         # grid.save_voxels_to_dict(ckpt_path)
 
-    if (gstep_id_base - last_upsamp_step) >= args.upsamp_every:
+    if (gstep_id_base - last_upsamp_step) >= args.upsamp_every and reso_id < len(reso_list) - 1:
         last_upsamp_step = gstep_id_base
-        if reso_id < len(reso_list) - 1:
-            print('* Upsampling from', reso_list[reso_id], 'to', reso_list[reso_id + 1])
-            if args.tv_early_only > 0:
-                print('turning off TV regularization')
-                args.lambda_tv = 0.0
-                args.lambda_tv_sh = 0.0
-            elif args.tv_decay != 1.0:
-                args.lambda_tv *= args.tv_decay
-                args.lambda_tv_sh *= args.tv_decay
+        print('* Upsampling from', reso_list[reso_id], 'to', reso_list[reso_id + 1])
+        if args.tv_early_only > 0:
+            print('turning off TV regularization')
+            args.lambda_tv = 0.0
+            args.lambda_tv_sh = 0.0
+        elif args.tv_decay != 1.0:
+            args.lambda_tv *= args.tv_decay
+            args.lambda_tv_sh *= args.tv_decay
 
-            reso_id += 1
-            use_sparsify = True
-            z_reso = reso_list[reso_id] if isinstance(reso_list[reso_id], int) else reso_list[reso_id][2]
-            grid.resample(reso=reso_list[reso_id],
-                    sigma_thresh=args.density_thresh,
-                    weight_thresh=args.weight_thresh / z_reso if use_sparsify else 0.0,
-                    dilate=2, #use_sparsify,
-                    cameras=resample_cameras if args.thresh_type == 'weight' else None,
-                    max_elements=args.max_grid_elements)
-            #optimal_density = get_links(pc_points)
-            #neg_optimal_density = get_links(negative_points)
+        reso_id += 1
+        use_sparsify = True
+        z_reso = reso_list[reso_id] if isinstance(reso_list[reso_id], int) else reso_list[reso_id][2]
+        grid.resample(reso=reso_list[reso_id],
+                sigma_thresh=args.density_thresh,
+                weight_thresh=args.weight_thresh / z_reso if use_sparsify else 0.0,
+                dilate=2, #use_sparsify,
+                cameras=resample_cameras if args.thresh_type == 'weight' else None,
+                max_elements=args.max_grid_elements)
+        #optimal_density = get_links(pc_points)
+        #neg_optimal_density = get_links(negative_points)
 
-            if grid.use_background and reso_id <= 1:
-                grid.sparsify_background(args.background_density_thresh)
+        if grid.use_background and reso_id <= 1:
+            grid.sparsify_background(args.background_density_thresh)
 
-            if args.upsample_density_add:
-                grid.density_data.data[:] += args.upsample_density_add
+        if args.upsample_density_add:
+            grid.density_data.data[:] += args.upsample_density_add
 
-        if factor > 1 and reso_id < len(reso_list) - 1:
+        if factor > 1:
             print('* Using higher resolution images due to large grid; new factor', factor)
             factor //= 2
             dset.gen_rays(factor=factor)
