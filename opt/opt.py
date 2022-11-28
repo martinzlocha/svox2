@@ -463,6 +463,10 @@ if args.init_from_point_cloud:
                 cameras=resample_cameras if args.thresh_type == 'weight' else None,
                 max_elements=args.max_grid_elements)
 
+if WANDB_ON:
+  wandb.log({
+      "voxels": torch.count_nonzero(grid.density_data),
+  }, step=0)
 
 if args.enable_random:
     warn("Randomness is enabled for training (normal for LLFF & scenes with background)")
@@ -733,7 +737,7 @@ while True:
                         "lr_sh": lr_sh,
                         "lr_sigma": lr_sigma,
                         "lr_basis": lr_basis,
-
+                        "voxels": torch.count_nonzero(grid.density_data),
                     }, step=gstep_id)
 
             #  # For outputting the % sparsity of the gradient

@@ -345,7 +345,8 @@ __device__ __inline__ void trace_ray_cuvol_backward(
                 curr_grad_sigma += sparsity_loss * (4 * sigma / (1 + 2 * (sigma * sigma)));
             }
             if (sparsity_loss > 0.f && ray.depth[0] - 0.1 < t / (opt.step_size * grid.size[2])) {
-                curr_grad_sigma += 1e-11 * (4 * sigma / (1 + 2 * (sigma * sigma)));
+                // TODO: Configure using a separate variable.
+                curr_grad_sigma += (sparsity_loss / 10000) * (4 * sigma / (1 + 2 * (sigma * sigma)));
             }
             trilerp_backward_cuvol_one(grid.links, grads.grad_sh_out,
                     grid.stride_x,
