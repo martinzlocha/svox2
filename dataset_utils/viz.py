@@ -1,14 +1,14 @@
 from functools import partial
 import json
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 import numpy as np
 import open3d as o3d
 import open3d.visualization.gui as gui
 import open3d.visualization.rendering as rendering
 import os
 from point_cloud import Pointcloud_DEPRECATED
-import torch
 from fire import Fire
+from abstract_viz import AbstractViz
 
 MAX_POINTCLOUD_POINTS = 1000000
 
@@ -67,10 +67,11 @@ def construct_cameras_geometry(transforms: List[np.ndarray]) -> o3d.geometry.Lin
     return geometry
 
 
-class VizApplication:
+class VizApplication(AbstractViz):
     def __init__(self,
                  dataset_dir: str,
                  grid_dir: Optional[str] = None):
+        super().__init__()
         potential_transforms_files = ["transforms_train.json", "transforms_test.json", "transforms_train_original.json", "transforms_test_original.json", "transforms_train_original_shifted.json"]
         transforms_files = [f for f in os.listdir(dataset_dir) if f in potential_transforms_files]
 
@@ -81,74 +82,49 @@ class VizApplication:
 
             self.transforms[transform_file] = [np.asarray(frame["transform_matrix"]) for frame in transforms["frames"]]
 
+        if grid_dir is not None:
+            print("Adding grid ...")
+            with open(grid_dir, 'rb') as f:
+                grid = np.load(f, allow_pickle=True).item()
+            self._show_grid(grid, self.materials.line)
+
+        self._add_cameras()
+        self._add_pointclouds(dataset_dir, transforms_files)
+        self._add_unit_cube()
+
+        self._add_to_settings_panel()
+
+        print("rendering now!")
+
+    def _add_cameras(self, ):
         self.camera_geometries = {}
+        self.add_settings_panel_section("cameras_checkbox_section", "Show Cameras")
 
         print("Building cameras...")
         for transform_name, transforms in self.transforms.items():
             self.camera_geometries[transform_name] = (construct_cameras_geometry(transforms))
 
-        print("Building the window...")
-        # NOW THE WINDOW
-        self.window = gui.Application.instance.create_window(
-            "Colmap viz", 1600, 1000)
-
-        self.scene = gui.SceneWidget()
-        self.scene.scene = rendering.Open3DScene(self.window.renderer)
-        self.scene.scene.set_background([1, 1, 1, 1])
-        self.scene.scene.scene.set_sun_light(
-            [-1, -1, -1],  # direction
-            [1, 1, 1],  # color
-            100000)  # intensity
-        self.scene.scene.scene.enable_sun_light(True)
-
-        self.pcd_material = rendering.MaterialRecord()
-        self.pcd_material.shader = "defaultUnlit"
-        self.pcd_material.point_size = 5.0
-
-        line_material = rendering.MaterialRecord()
-        line_material.shader = "unlitLine"
-        line_material.line_width = 1
-
-        self.scene.scene.show_axes(True)
-        self.scene.set_view_controls(gui.SceneWidget.Controls.ROTATE_CAMERA)
-
-        bbox = o3d.geometry.AxisAlignedBoundingBox([-10, -10, -10], [10, 10, 10])
-        self.scene.setup_camera(60, bbox, [0, 0, 0])
-
-        em = self.window.theme.font_size
-
-
-        # self.scene.scene.add_geometry("grid", self.coordinates_grid, grid_material)
-        if grid_dir is not None:
-            print("Adding grid ...")
-            with open(grid_dir, 'rb') as f:
-                grid = np.load(f, allow_pickle=True).item()
-            self._show_grid(grid, line_material)
-
-
         print("Adding cameras geometry...")
         for transform_name, geometry in self.camera_geometries.items():
-            self.scene.scene.add_geometry(f"cam_{transform_name}", geometry, line_material)
-            self.scene.scene.show_geometry(f"cam_{transform_name}", False)
+            self.add_geometry(f"cam_{transform_name}", geometry, self.materials.line)
+            self.add_show_checkbox_for_geometry(f"cam_{transform_name}", "cameras_checkbox_section", transform_name, False)
 
+    def _add_pointclouds(self, dataset_dir: str, transforms_files: Iterable[str]) -> None:
         self.pointclouds: Dict[str, Pointcloud_DEPRECATED] = {}
-
+        self.add_settings_panel_section("pointclouds_checkbox_section", "Show Pointcloud")
         for transform_name in transforms_files:
             print(f"Adding {transform_name} pointcloud geometry...")
             pointcloud = Pointcloud_DEPRECATED.from_dataset(dataset_dir, [transform_name])
             self.pointclouds[transform_name] = pointcloud
-            self.scene.scene.add_geometry(f"pcd_{transform_name}", pointcloud.get_pruned_pointcloud(MAX_POINTCLOUD_POINTS).to_open3d(), self.pcd_material)
-            self.scene.scene.show_geometry(f"pcd_{transform_name}", False)
+            self.add_geometry(f"pcd_{transform_name}", pointcloud.get_pruned_pointcloud(MAX_POINTCLOUD_POINTS).to_open3d())
+            self.add_show_checkbox_for_geometry(f"pcd_{transform_name}", "pointclouds_checkbox_section", transform_name, False)
 
-
+    def _add_unit_cube(self):
         print("Adding unit cube geometry...")
-        self.scene.scene.add_geometry("unit_cube", self._get_unit_cube_mesh(radius=1.), line_material)
-        print("rendering now!")
 
-        self.window.set_on_layout(self._on_layout)
-        self.window.add_child(self.scene)
-        self.settings_panel = self._get_settings_panel(em)
-        self.window.add_child(self.settings_panel)
+        self.add_settings_panel_section("unit_cube", "Unit cube")
+        self.add_geometry("unit_cube", self._get_unit_cube_mesh(radius=1.), self.materials.line)
+        self.add_show_checkbox_for_geometry("unit_cube", "unit_cube", "unit cube", False)
 
 
     def _show_grid(self, grid: Dict[str, np.ndarray], line_material) -> None:
@@ -187,80 +163,19 @@ class VizApplication:
         mesh.lines = o3d.utility.Vector2iVector(cube_lines)
         mesh.paint_uniform_color((0., 0., 1.))
 
-        self.scene.scene.add_geometry("mesh", mesh, line_material)
+        self.add_geometry("grid", mesh, line_material)
 
+        self.add_settings_panel_section("grid_checkbox_section", "Show Grid")
+        self.add_show_checkbox_for_geometry("grid", "grid_checkbox_section", "Show Grid", False)
+        # self._scene.scene.add_geometry("mesh", mesh, line_material)
 
-    def _on_layout(self, layout_context):
-        # The on_layout callback should set the frame (position + size) of every
-        # child correctly. After the callback is done the window will layout
-        # the grandchildren.
-        r = self.window.content_rect
-        self.scene.frame = r
-        width = 17 * layout_context.theme.font_size
-        height = min(
-            r.height,
-            self.settings_panel.calc_preferred_size(layout_context, gui.Widget.Constraints()).height)
-        self.settings_panel.frame = gui.Rect(r.get_right() - width, r.y, width, height)
+    def _add_to_settings_panel(self):
+        # TODO: move to the abstract viz
+        em = self._settings_em
+        frame_by_frame = self.add_settings_panel_section("replay_capture", "Replay Capture")
 
-    def _get_settings_panel(self, em: float):
-        separation_height = int(round(0.5 * em))
-        settings_panel = gui.Vert(0, gui.Margins(0.25 * em, 0.25 * em, 0.25 * em, 0.25 * em))
-
-        view_ctrls = gui.CollapsableVert("View controls", 0.25 * em,
-                                         gui.Margins(em, 0, 0, 0))
-        buttons = [
-            ("Arcball", gui.SceneWidget.Controls.ROTATE_CAMERA),
-            ("Fly", gui.SceneWidget.Controls.FLY),
-            ("Model", gui.SceneWidget.Controls.ROTATE_MODEL),
-            ("BREAK", None),
-            ("Sun", gui.SceneWidget.Controls.ROTATE_IBL),
-            ("Environment", gui.SceneWidget.Controls.ROTATE_IBL),
-        ]
-
-        view_ctrls.add_child(gui.Label("Mouse controls"))
-        row = gui.Horiz(0.25 * em)
-        row.add_stretch()
-        for name, camera_mode in buttons:
-            if name == "BREAK":
-                row.add_stretch()
-                view_ctrls.add_child(row)
-                row = gui.Horiz(0.25 * em)
-                row.add_stretch()
-                continue
-
-            row.add_child(self._get_camera_control_button(name, camera_mode, self.scene))
-
-        row.add_stretch()
-        view_ctrls.add_child(row)
-
-        settings_panel.add_fixed(separation_height)
-        settings_panel.add_child(view_ctrls)
-
-        dataset_selection = gui.CollapsableVert("Show cameras", 0.25 * em,
-                                         gui.Margins(em, 0, 0, 0))
-
-        for transform_name in self.transforms.keys():
-            cb = gui.Checkbox(transform_name)
-            cb.set_on_checked(partial(self._on_check, transform_name=transform_name))
-            dataset_selection.add_child(cb)
-
-
-        settings_panel.add_fixed(separation_height)
-        settings_panel.add_child(dataset_selection)
-
-        pointcloud_selection = gui.CollapsableVert("Show pointcloud", 0.25 * em,
-                                         gui.Margins(em, 0, 0, 0))
-
-        for transform_name in self.transforms.keys():
-            cb = gui.Checkbox(transform_name)
-            cb.set_on_checked(partial(self._on_check_pcd, transform_name=transform_name))
-            pointcloud_selection.add_child(cb)
-
-        settings_panel.add_fixed(separation_height)
-        settings_panel.add_child(pointcloud_selection)
-
-        frame_by_frame = gui.CollapsableVert("Frame by Frame", 0.25 * em,
-                                         gui.Margins(em, 0, 0, 0))
+        # frame_by_frame = gui.CollapsableVert("Frame by Frame", 0.25 * em,
+        #                                  gui.Margins(em, 0, 0, 0))
 
         rb = gui.RadioButton(gui.RadioButton.VERT)
         rb.set_items(list(map(str, self.pointclouds.keys())))
@@ -310,32 +225,6 @@ class VizApplication:
 
         frame_by_frame.add_child(row)
 
-        settings_panel.add_fixed(separation_height)
-        settings_panel.add_child(frame_by_frame)
-
-        unit_cube = gui.CollapsableVert("Unit Cube", 0.25 * em,
-                                         gui.Margins(em, 0, 0, 0))
-
-        cb = gui.Checkbox("Show unit cube")
-        cb.set_on_checked(self._on_check_unit_cube)
-        cb.checked = True
-        unit_cube.add_child(cb)
-
-        settings_panel.add_fixed(separation_height)
-        settings_panel.add_child(unit_cube)
-
-        settings_panel.visible = True
-
-        return settings_panel
-
-    @staticmethod
-    def _get_camera_control_button(name: str, camera_mode, scene):
-        button = gui.Button(name)
-        button.horizontal_padding_em = 0.5
-        button.vertical_padding_em = 0
-        button.set_on_clicked(lambda: scene.set_view_controls(camera_mode))
-        return button
-
     @staticmethod
     def _get_unit_cube_mesh(radius: int = 0.5,
                             translation: Optional[Tuple[float, float, float]] = None,
@@ -371,9 +260,6 @@ class VizApplication:
 
         return unit_cube
 
-    def _on_check(self, is_checked: bool, transform_name: str):
-        self.scene.scene.show_geometry(f"cam_{transform_name}", is_checked)
-
     def _on_frame_by_frame_select(self, idx):
         pointcloud_key = list(self.pointclouds.keys())[idx]
         pointcloud = self.pointclouds[pointcloud_key]
@@ -396,9 +282,9 @@ class VizApplication:
         value = int(value)
         pointcloud_key = list(self.pointclouds.keys())[self._current_slider_pointcloud_idx]
         pointcloud = self.pointclouds[pointcloud_key]
-        self.scene.scene.remove_geometry(f"{object_name}")
+        self._scene.scene.remove_geometry(f"{object_name}")
 
-        self.scene.scene.add_geometry(f"{object_name}", pointcloud.from_frame(value).to_open3d(), self.pcd_material)
+        self._scene.scene.add_geometry(f"{object_name}", pointcloud.from_frame(value).to_open3d(), self.materials.pointcloud)
 
     def _forward_slider_pointcloud(self, object_name: str):
         if self._current_slider_pointcloud_idx is None:
@@ -428,14 +314,6 @@ class VizApplication:
     def _rewind_slider_pointclouds(self):
         self._rewind_slider_pointcloud('first_slider_object')
         self._rewind_slider_pointcloud('second_slider_object')
-
-    def _on_check_pcd(self, is_checked: bool, transform_name: str):
-        self.scene.scene.show_geometry(f"pcd_{transform_name}", is_checked)
-
-        print(transform_name, is_checked)
-
-    def _on_check_unit_cube(self, is_checked: bool):
-        self.scene.scene.show_geometry("unit_cube", is_checked)
 
 
 def main(dataset_dir: str,
