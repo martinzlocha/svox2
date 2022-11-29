@@ -247,7 +247,8 @@ def invert_transformation_matrix(matrix):
 
 def run_full_icp(dataset_dir: str,
                  loop_closing_skip_size: int = 20,
-                 max_correspondence_distance: float = 0.4) -> None:
+                 max_correspondence_distance: float = 0.4,
+                 pose_graph_optimization_iterations: int = 100) -> None:
     transforms_train = os.path.join(dataset_dir,
                                     'transforms_train_original.json')
     with open(transforms_train, 'r') as f:
@@ -295,12 +296,14 @@ def run_full_icp(dataset_dir: str,
             max_correspondence_distance=max_correspondence_distance,
             edge_prune_threshold=0.25,
             reference_node=0)
+    criteria = o3d.pipelines.registration.GlobalOptimizationConvergenceCriteria()
+    criteria.max_iteration = pose_graph_optimization_iterations
     with o3d.utility.VerbosityContextManager(
             o3d.utility.VerbosityLevel.Debug) as cm:
         o3d.pipelines.registration.global_optimization(
             pose_graph,
             o3d.pipelines.registration.GlobalOptimizationLevenbergMarquardt(),
-            o3d.pipelines.registration.GlobalOptimizationConvergenceCriteria(),
+            criteria,
             option)
     
     new_frames = []
