@@ -246,7 +246,7 @@ def invert_transformation_matrix(matrix):
 
 
 def run_full_icp(dataset_dir: str,
-                 loop_closing_skip_size: int = 4,
+                 loop_closing_skip_size: int = 20,
                  max_correspondence_distance: float = 0.4) -> None:
     transforms_train = os.path.join(dataset_dir,
                                     'transforms_train_original.json')
@@ -259,12 +259,11 @@ def run_full_icp(dataset_dir: str,
     odometry = np.identity(4)
     pose_graph.nodes.append(o3d.pipelines.registration.PoseGraphNode(odometry))
     n_pcds = len(pcds)
-    num_points = 20
     print('Building pose graph ...')
-    for source_id in tqdm(range(num_points)):
+    for source_id in tqdm(range(n_pcds)):
         source_pcd = pcds[source_id].pointcloud.as_open3d_tensor().transform(odometry)
         source_trans_inv = invert_transformation_matrix(pcds[source_id].transform_matrix)
-        targets = [(source_id + 1) % num_points, (source_id + loop_closing_skip_size) % num_points]
+        targets = [(source_id + 1) % n_pcds, (source_id + loop_closing_skip_size) % n_pcds]
         for target_id in targets:
             target_pcd = pcds[target_id].pointcloud.as_open3d_tensor().transform(odometry)
             target_trans = pcds[target_id].transform_matrix
