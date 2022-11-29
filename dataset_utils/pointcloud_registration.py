@@ -272,7 +272,6 @@ def run_full_icp(dataset_dir: str,
                                                                         target_pcd,
                                                                         o3d.core.Tensor(trans_init),
                                                                         max_correspondence_distance)
-            print(source_id, target_id)
             if target_id == source_id + 1:  # odometry case
                 odometry = transformation_icp @ odometry
                 pose_graph.nodes.append(
