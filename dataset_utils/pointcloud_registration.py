@@ -32,7 +32,10 @@ class FrameData:
         self.depth: np.ndarray = load_depth_file(depth_file_path).numpy()
 
         self.transform_matrix = np.array(frame_data["transform_matrix"])
-        self.pointcloud = Pointcloud.from_camera_transform(self.transform_matrix, self.depth, self.rgb, self.camera_angle_x)
+        self.pointcloud = Pointcloud.from_camera_transform(self.transform_matrix,
+                                                           self.depth,
+                                                           self.rgb,
+                                                           self.camera_angle_x)
 
         self._matching = None
 
@@ -212,24 +215,22 @@ def run_pairwise_icp(dataset_dir: str):
             new_frames.append(frame)
         json.dump(train_json, f, indent=4)
 
-def pairwise_registration(source, target, trans_init, max_correspondence_distance=0.4):
+def pairwise_registration(source, target, trans_init, max_correspondence_distance=0.5, voxel_size=0.01):
     registration_icp = treg.icp(
                 source,
                 target,
                 max_correspondence_distance=max_correspondence_distance,
                 init_source_to_target=trans_init,
                 estimation_method=treg.TransformationEstimationPointToPoint(),
-                criteria=treg.ICPConvergenceCriteria(relative_fitness=0.001,
-                                        relative_rmse=0.001,
-                                        max_iteration=30),
-                voxel_size=0.4)
+                criteria=treg.ICPConvergenceCriteria(max_iteration=10),
+                voxel_size=voxel_size)
     transformation_icp = registration_icp.transformation.numpy()
 
     try:
         information_icp = treg.get_information_matrix(source,
-                                                    target,
-                                                    max_correspondence_distance,
-                                                    transformation_icp).numpy()
+                                                      target,
+                                                      max_correspondence_distance,
+                                                      transformation_icp).numpy()
     except RuntimeError as e:
         information_icp = np.eye(6)
     return transformation_icp, information_icp
@@ -247,7 +248,7 @@ def invert_transformation_matrix(matrix):
 
 def run_full_icp(dataset_dir: str,
                  loop_closing_skip_size: int = 20,
-                 max_correspondence_distance: float = 0.4,
+                 max_correspondence_distance: float = 0.1,
                  pose_graph_optimization_iterations: int = 100) -> None:
     transforms_train = os.path.join(dataset_dir,
                                     'transforms_train_original.json')
@@ -262,11 +263,11 @@ def run_full_icp(dataset_dir: str,
     n_pcds = len(pcds)
     print('Building pose graph ...')
     for source_id in tqdm(range(n_pcds)):
-        source_pcd = pcds[source_id].pointcloud.as_open3d_tensor().transform(odometry)
+        source_pcd = pcds[source_id].pointcloud.as_open3d_tensor()
         source_trans_inv = invert_transformation_matrix(pcds[source_id].transform_matrix)
         targets = [(source_id + 1) % n_pcds, (source_id + loop_closing_skip_size) % n_pcds]
         for target_id in targets:
-            target_pcd = pcds[target_id].pointcloud.as_open3d_tensor().transform(odometry)
+            target_pcd = pcds[target_id].pointcloud.as_open3d_tensor()
             target_trans = pcds[target_id].transform_matrix
             trans_init = target_trans @ source_trans_inv
             transformation_icp, information_icp = pairwise_registration(source_pcd,
@@ -274,10 +275,10 @@ def run_full_icp(dataset_dir: str,
                                                                         o3d.core.Tensor(trans_init),
                                                                         max_correspondence_distance)
             if target_id == source_id + 1:  # odometry case
-                odometry = transformation_icp @ odometry
+                odometry = np.dot(transformation_icp, odometry)
                 pose_graph.nodes.append(
                     o3d.pipelines.registration.PoseGraphNode(
-                        np.linalg.inv(odometry)))
+                        invert_transformation_matrix(odometry)))
                 pose_graph.edges.append(
                     o3d.pipelines.registration.PoseGraphEdge(source_id,
                                                              target_id,
