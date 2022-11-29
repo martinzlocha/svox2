@@ -20,7 +20,6 @@ from utils import (depth_file_path_from_frame,
 from point_cloud import Pointcloud
 
 
-
 class FrameData:
     def __init__(self, frame_data: Dict, dataset_dir: str, camera_angle_x: float):
         self.camera_angle_x = camera_angle_x
@@ -215,7 +214,7 @@ def run_pairwise_icp(dataset_dir: str):
             new_frames.append(frame)
         json.dump(train_json, f, indent=4)
 
-def pairwise_registration(source, target, trans_init, max_correspondence_distance=0.5, voxel_size=0.01):
+def pairwise_registration(source, target, trans_init, max_correspondence_distance, voxel_size=0.01):
     registration_icp = treg.icp(
                 source,
                 target,
@@ -246,10 +245,30 @@ def invert_transformation_matrix(matrix):
     return inverted_matrix
 
 
+def has_aabb_one_dimensional_overlap(segment1: np.array, segment2: np.array) -> bool:
+    # Segement: [2] (min, max)
+    return segment1[1] >= segment2[0] and segment2[1] >= segment1[0]
+
+def should_add_edge_intersection(pcd1: o3d.t.geometry.PointCloud,
+                                 pcd2: o3d.t.geometry.PointCloud) -> bool:
+    bounding_box1 = pcd1.get_axis_aligned_bounding_box()
+    bounding_box2 = pcd2.get_axis_aligned_bounding_box()
+    # Shape: [3, 2]
+    min_max_extents1 = np.stack([bounding_box1.get_min_bound(),
+                                 bounding_box1.get_max_bound()], axis=-1)
+    # Shape: [3, 2]
+    min_max_extents2 = np.stack([bounding_box2.get_min_bound(),
+                                 bounding_box2.get_max_bound()], axis=-1)
+    has_overlap = True
+    for i in range(3):
+        has_overlap = has_overlap and (has_aabb_one_dimensional_overlap(min_max_extents1[i],
+                                                                        min_max_extents2[i]))
+    return has_overlap
+
 def run_full_icp(dataset_dir: str,
-                 loop_closing_skip_size: int = 20,
                  max_correspondence_distance: float = 0.1,
-                 pose_graph_optimization_iterations: int = 100) -> None:
+                 pose_graph_optimization_iterations: int = 300,
+                 forward_frame_step_size: int = 5) -> None:
     transforms_train = os.path.join(dataset_dir,
                                     'transforms_train_original.json')
     with open(transforms_train, 'r') as f:
@@ -265,9 +284,12 @@ def run_full_icp(dataset_dir: str,
     for source_id in tqdm(range(n_pcds)):
         source_pcd = pcds[source_id].pointcloud.as_open3d_tensor()
         source_trans_inv = invert_transformation_matrix(pcds[source_id].transform_matrix)
-        targets = [(source_id + 1) % n_pcds, (source_id + loop_closing_skip_size) % n_pcds]
-        for target_id in targets:
+        for target_id in [source_id + 1] + list(range(source_id + forward_frame_step_size,
+                                                n_pcds,
+                                                forward_frame_step_size)):
             target_pcd = pcds[target_id].pointcloud.as_open3d_tensor()
+            if not (target_id == source_id + 1 or should_add_edge_intersection(source_pcd, target_pcd)):
+                continue
             target_trans = pcds[target_id].transform_matrix
             trans_init = target_trans @ source_trans_inv
             transformation_icp, information_icp = pairwise_registration(source_pcd,
