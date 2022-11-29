@@ -212,7 +212,7 @@ def run_pairwise_icp(dataset_dir: str):
             new_frames.append(frame)
         json.dump(train_json, f, indent=4)
 
-def pairwise_registration(source, target, trans_init, max_correspondence_distance=0.2):
+def pairwise_registration(source, target, trans_init, max_correspondence_distance=0.4):
     registration_icp = treg.icp(
                 source,
                 target,
@@ -245,7 +245,9 @@ def invert_transformation_matrix(matrix):
     return inverted_matrix
 
 
-def run_full_icp(dataset_dir: str):
+def run_full_icp(dataset_dir: str,
+                 loop_closing_skip_size: int = 4,
+                 max_correspondence_distance: float = 0.4) -> None:
     transforms_train = os.path.join(dataset_dir,
                                     'transforms_train_original.json')
     with open(transforms_train, 'r') as f:
@@ -257,17 +259,21 @@ def run_full_icp(dataset_dir: str):
     odometry = np.identity(4)
     pose_graph.nodes.append(o3d.pipelines.registration.PoseGraphNode(odometry))
     n_pcds = len(pcds)
-    for source_id in range(n_pcds):
+    num_points = 20
+    print('Building pose graph ...')
+    for source_id in tqdm(range(num_points)):
         source_pcd = pcds[source_id].pointcloud.as_open3d_tensor().transform(odometry)
         source_trans_inv = invert_transformation_matrix(pcds[source_id].transform_matrix)
-        for target_id in range(source_id + 1, n_pcds):
-            print('processing', target_id)
+        targets = [(source_id + 1) % num_points, (source_id + loop_closing_skip_size) % num_points]
+        for target_id in targets:
             target_pcd = pcds[target_id].pointcloud.as_open3d_tensor().transform(odometry)
             target_trans = pcds[target_id].transform_matrix
             trans_init = target_trans @ source_trans_inv
             transformation_icp, information_icp = pairwise_registration(source_pcd,
                                                                         target_pcd,
-                                                                        o3d.core.Tensor(trans_init))
+                                                                        o3d.core.Tensor(trans_init),
+                                                                        max_correspondence_distance)
+            print(source_id, target_id)
             if target_id == source_id + 1:  # odometry case
                 odometry = transformation_icp @ odometry
                 pose_graph.nodes.append(
@@ -286,7 +292,28 @@ def run_full_icp(dataset_dir: str):
                                                              transformation_icp,
                                                              information_icp,
                                                              uncertain=True))
-    return pose_graph
+    print("Starting to optimize pose graph ...")
+    option = o3d.pipelines.registration.GlobalOptimizationOption(
+            max_correspondence_distance=max_correspondence_distance,
+            edge_prune_threshold=0.25,
+            reference_node=0)
+    with o3d.utility.VerbosityContextManager(
+            o3d.utility.VerbosityLevel.Debug) as cm:
+        o3d.pipelines.registration.global_optimization(
+            pose_graph,
+            o3d.pipelines.registration.GlobalOptimizationLevenbergMarquardt(),
+            o3d.pipelines.registration.GlobalOptimizationConvergenceCriteria(),
+            option)
+    
+    new_frames = []
+    print("Writing results ...")
+    transforms_train_shifted = os.path.join(dataset_dir, 'transforms_train_original_shifted.json')
+    with open(transforms_train_shifted, 'w') as f:
+        for i, node in enumerate(pose_graph.nodes):
+            new_frame = frame_data[i]
+            new_frame.transform_matrix = node.pose
+            new_frames.append(new_frame)
+        json.dump(train_json, f, indent=4)
 
 
 def main(dataset_dir: str):
