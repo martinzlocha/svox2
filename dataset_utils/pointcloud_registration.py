@@ -212,22 +212,26 @@ def run_pairwise_icp(dataset_dir: str):
             new_frames.append(frame)
         json.dump(train_json, f, indent=4)
 
-def pairwise_registration(source, target, trans_init, max_correspondence_distance=0.1):
+def pairwise_registration(source, target, trans_init, max_correspondence_distance=0.2):
     registration_icp = treg.icp(
                 source,
                 target,
                 max_correspondence_distance=max_correspondence_distance,
                 init_source_to_target=trans_init,
                 estimation_method=treg.TransformationEstimationPointToPoint(),
-                criteria=treg.ICPConvergenceCriteria(relative_fitness=0.0001,
-                                        relative_rmse=0.0001,
-                                        max_iteration=100),
+                criteria=treg.ICPConvergenceCriteria(relative_fitness=0.001,
+                                        relative_rmse=0.001,
+                                        max_iteration=30),
                 voxel_size=0.4)
-    transformation_icp = registration_icp.transformation
-    information_icp = treg.get_information_matrix(source,
-                                                  target,
-                                                  max_correspondence_distance,
-                                                  transformation_icp)
+    transformation_icp = registration_icp.transformation.numpy()
+
+    try:
+        information_icp = treg.get_information_matrix(source,
+                                                    target,
+                                                    max_correspondence_distance,
+                                                    transformation_icp).numpy()
+    except RuntimeError as e:
+        information_icp = np.eye(6)
     return transformation_icp, information_icp
 
 
@@ -250,25 +254,25 @@ def run_full_icp(dataset_dir: str):
     frame_data = load_frame_data_from_dataset(dataset_dir, transforms_train)
     pcds = frame_data
     pose_graph = o3d.pipelines.registration.PoseGraph()
-    odometry = o3d.core.Tensor(np.identity(4))
+    odometry = np.identity(4)
     pose_graph.nodes.append(o3d.pipelines.registration.PoseGraphNode(odometry))
     n_pcds = len(pcds)
     for source_id in range(n_pcds):
         source_pcd = pcds[source_id].pointcloud.as_open3d_tensor().transform(odometry)
         source_trans_inv = invert_transformation_matrix(pcds[source_id].transform_matrix)
         for target_id in range(source_id + 1, n_pcds):
+            print('processing', target_id)
             target_pcd = pcds[target_id].pointcloud.as_open3d_tensor().transform(odometry)
             target_trans = pcds[target_id].transform_matrix
             trans_init = target_trans @ source_trans_inv
             transformation_icp, information_icp = pairwise_registration(source_pcd,
                                                                         target_pcd,
                                                                         o3d.core.Tensor(trans_init))
-
             if target_id == source_id + 1:  # odometry case
-                odometry = o3d.core.matmul(transformation_icp, odometry)
+                odometry = transformation_icp @ odometry
                 pose_graph.nodes.append(
                     o3d.pipelines.registration.PoseGraphNode(
-                        o3d.core.inv(odometry)))
+                        np.linalg.inv(odometry)))
                 pose_graph.edges.append(
                     o3d.pipelines.registration.PoseGraphEdge(source_id,
                                                              target_id,
