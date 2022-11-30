@@ -18,6 +18,7 @@ from tqdm import tqdm
 from utils import (depth_file_path_from_frame,
                                  img_file_path_from_frame, load_depth_file)
 from point_cloud import Pointcloud
+from aabb_iou import aabb_intersection_ratios
 
 
 class FrameData:
@@ -223,8 +224,12 @@ def pairwise_registration(source, target, trans_init, max_correspondence_distanc
                 estimation_method=treg.TransformationEstimationPointToPoint(),
                 criteria=treg.ICPConvergenceCriteria(max_iteration=10),
                 voxel_size=voxel_size)
-    transformation_icp = registration_icp.transformation.numpy()
 
+    if registration_icp.fitness == 0 and registration_icp.inlier_rmse == 0:
+        # no correspondence
+        return None, None
+
+    transformation_icp = registration_icp.transformation.numpy()
     try:
         information_icp = treg.get_information_matrix(source,
                                                       target,
@@ -236,6 +241,7 @@ def pairwise_registration(source, target, trans_init, max_correspondence_distanc
 
 
 def invert_transformation_matrix(matrix):
+    # http://www.info.hiroshima-cu.ac.jp/~miyazaki/knowledge/teche0053.html
     R = matrix[:3, :3]
     t = matrix[:3, 3:]
     inverted_matrix = np.concatenate([R.T, -R.T @ t], axis=-1)
@@ -245,35 +251,56 @@ def invert_transformation_matrix(matrix):
     return inverted_matrix
 
 
-def has_aabb_one_dimensional_overlap(segment1: np.array, segment2: np.array) -> bool:
+def has_aabb_one_dimensional_overlap(segment1: np.ndarray, segment2: np.ndarray) -> bool:
     # Segement: [2] (min, max)
     return segment1[1] >= segment2[0] and segment2[1] >= segment1[0]
 
 def should_add_edge_intersection(pcd1: o3d.t.geometry.PointCloud,
                                  pcd2: o3d.t.geometry.PointCloud,
-                                 scale: int = 0.3) -> bool:
-    # Downscaled AABB
+                                 scale: float = 0.3,
+                                 iou_threshold = 0.85) -> bool:
+    # # Downscaled AABB
+    # bounding_box1 = pcd1.get_axis_aligned_bounding_box()
+    # bounding_box2 = pcd2.get_axis_aligned_bounding_box()
+    # bounding_box1.scale(scale, center=bounding_box1.get_center())
+    # bounding_box2.scale(scale, center=bounding_box2.get_center())
+
+    # # Shape: [3, 2]
+    # print(bounding_box1.get_min_bound())
+    # min_max_extents1 = np.stack([bounding_box1.get_min_bound().numpy(),
+    #                              bounding_box1.get_max_bound().numpy()], axis=-1)
+    # # Shape: [3, 2]
+    # min_max_extents2 = np.stack([bounding_box2.get_min_bound().numpy(),
+    #                              bounding_box2.get_max_bound().numpy()], axis=-1)
+
+    # has_overlap = True
+    # for i in range(3):
+    #     has_overlap = has_overlap and (has_aabb_one_dimensional_overlap(min_max_extents1[i],
+    #                                                                     min_max_extents2[i]))
+    # return has_overlap
+
+
     bounding_box1 = pcd1.get_axis_aligned_bounding_box()
     bounding_box2 = pcd2.get_axis_aligned_bounding_box()
-    bounding_box1.scale(scale, center=bounding_box1.get_center())
-    bounding_box2.scale(scale, center=bounding_box2.get_center())
+    min_max_1 = np.stack([bounding_box1.get_min_bound().numpy(), bounding_box1.get_max_bound().numpy()], axis=0)  # Shape: (2, 3)
+    min_max_2 = np.stack([bounding_box2.get_min_bound().numpy(), bounding_box2.get_max_bound().numpy()], axis=0)  # Shape: (2, 3)
 
-    # Shape: [3, 2]
-    min_max_extents1 = np.stack([bounding_box1.get_min_bound(),
-                                 bounding_box1.get_max_bound()], axis=-1)
-    # Shape: [3, 2]
-    min_max_extents2 = np.stack([bounding_box2.get_min_bound(),
-                                 bounding_box2.get_max_bound()], axis=-1)
-    has_overlap = True
-    for i in range(3):
-        has_overlap = has_overlap and (has_aabb_one_dimensional_overlap(min_max_extents1[i],
-                                                                        min_max_extents2[i]))
-    return has_overlap
+    iou, aabb1_intersection_ratio, aabb2_intersection_ratio = aabb_intersection_ratios(min_max_1, min_max_2)
+
+    loop_should_be_closed = iou > iou_threshold or aabb1_intersection_ratio > iou_threshold or aabb2_intersection_ratio > iou_threshold
+
+    # if loop_should_be_closed:
+    #     #debugging
+    #     print(iou, aabb1_intersection_ratio, aabb2_intersection_ratio)
+
+    return loop_should_be_closed
+
 
 def run_full_icp(dataset_dir: str,
                  max_correspondence_distance: float = 0.1,
                  pose_graph_optimization_iterations: int = 300,
-                 forward_frame_step_size: int = 5) -> None:
+                 forward_frame_step_size: int = 1,
+                 no_loop_closure_within_frames: int = 12) -> None:
     transforms_train = os.path.join(dataset_dir,
                                     'transforms_train_original.json')
     with open(transforms_train, 'r') as f:
@@ -289,12 +316,14 @@ def run_full_icp(dataset_dir: str,
     for source_id in tqdm(range(n_pcds)):
         source_pcd = pcds[source_id].pointcloud.as_open3d_tensor()
         source_trans_inv = invert_transformation_matrix(pcds[source_id].transform_matrix)
-        for target_id in [source_id + 1] + list(range(source_id + forward_frame_step_size,
-                                                n_pcds,
-                                                forward_frame_step_size)):
-            target_id = target_id % n_pcds
+        # for target_id in [source_id + 1] + list(range(source_id + forward_frame_step_size,
+        #                                         n_pcds,
+        #                                         forward_frame_step_size)):
+        last_loop_closure = source_id
+        for target_id in range(source_id+1, n_pcds, forward_frame_step_size):
+            # target_id = target_id % n_pcds
             target_pcd = pcds[target_id].pointcloud.as_open3d_tensor()
-            if not (target_id == source_id + 1 or should_add_edge_intersection(source_pcd, target_pcd)):
+            if not (target_id == source_id + 1 or (target_id >= source_id + no_loop_closure_within_frames and target_id >= last_loop_closure + no_loop_closure_within_frames and should_add_edge_intersection(source_pcd, target_pcd))):
                 continue
             target_trans = pcds[target_id].transform_matrix
             trans_init = target_trans @ source_trans_inv
@@ -303,6 +332,9 @@ def run_full_icp(dataset_dir: str,
                                                                         o3d.core.Tensor(trans_init),
                                                                         max_correspondence_distance)
             if target_id == source_id + 1:  # odometry case
+                if transformation_icp is None or information_icp is None:
+                    # no correspondence found
+                    raise ValueError("no transformation found for odometry case")
                 odometry = np.dot(transformation_icp, odometry)
                 pose_graph.nodes.append(
                     o3d.pipelines.registration.PoseGraphNode(
@@ -314,6 +346,11 @@ def run_full_icp(dataset_dir: str,
                                                              information_icp,
                                                              uncertain=False))
             else:  # loop closure case
+                if transformation_icp is None or information_icp is None:
+                    continue
+                print("closing loop for", source_id, target_id)
+                # print(f"closing the loop for frames {source_id} and {target_id}")
+                last_loop_closure = target_id
                 pose_graph.edges.append(
                     o3d.pipelines.registration.PoseGraphEdge(source_id,
                                                              target_id,
@@ -334,7 +371,7 @@ def run_full_icp(dataset_dir: str,
             o3d.pipelines.registration.GlobalOptimizationLevenbergMarquardt(),
             criteria,
             option)
-    
+
     new_frames = []
     print("Writing results ...")
     transforms_train_shifted = os.path.join(dataset_dir, 'transforms_train_original_shifted.json')
