@@ -402,22 +402,19 @@ def set_grid_density(grid: svox2.svox2.SparseGrid,
         points[:, i].clamp_max_(grid.links.size(i) - 1)
     l = points.to(torch.long)
     for i in range(3):
-        l[:, i].clamp_max_(grid.links.size(i) - 2)
+        l[:, i].clamp_max_(grid.links.size(i) - 1)
+
     lx, ly, lz = l.unbind(-1)
     optimal_density = torch.zeros_like(grid.density_data)
-    for dx in [0, 1]:
-        for dy in [0, 1]:
-            for dz in [0, 1]:
-                ldx, ldy, ldz = lx + dx, ly + dy, lz + dz
-                links = grid.links[ldx, ldy, ldz]
-                mask = links >= 0
-                links = links[mask].long()
-                link_bincount = torch.bincount(links)
-                link_bincount[link_bincount < 3] = 0
-                keep_links = torch.count_nonzero(link_bincount)
-                print(f"Keeping {keep_links} links")
-                idxs = torch.argsort(link_bincount, descending=True)[:keep_links]
-                optimal_density[idxs] = target_density
+    links = grid.links[lx, ly, lz]
+    mask = links >= 0
+    links = links[mask].long()
+    link_bincount = torch.bincount(links)
+    link_bincount[link_bincount < 3] = 0
+    keep_links = torch.count_nonzero(link_bincount)
+    print(f"Keeping {keep_links} links")
+    idxs = torch.argsort(link_bincount, descending=True)[:keep_links]
+    optimal_density[idxs] = target_density
     
     grid.density_data = torch.nn.Parameter(optimal_density)
 
