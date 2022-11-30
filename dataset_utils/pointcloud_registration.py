@@ -250,9 +250,14 @@ def has_aabb_one_dimensional_overlap(segment1: np.array, segment2: np.array) -> 
     return segment1[1] >= segment2[0] and segment2[1] >= segment1[0]
 
 def should_add_edge_intersection(pcd1: o3d.t.geometry.PointCloud,
-                                 pcd2: o3d.t.geometry.PointCloud) -> bool:
+                                 pcd2: o3d.t.geometry.PointCloud,
+                                 scale: int = 0.3) -> bool:
+    # Downscaled AABB
     bounding_box1 = pcd1.get_axis_aligned_bounding_box()
     bounding_box2 = pcd2.get_axis_aligned_bounding_box()
+    bounding_box1.scale(scale, center=bounding_box1.get_center())
+    bounding_box2.scale(scale, center=bounding_box2.get_center())
+
     # Shape: [3, 2]
     min_max_extents1 = np.stack([bounding_box1.get_min_bound(),
                                  bounding_box1.get_max_bound()], axis=-1)
@@ -287,6 +292,7 @@ def run_full_icp(dataset_dir: str,
         for target_id in [source_id + 1] + list(range(source_id + forward_frame_step_size,
                                                 n_pcds,
                                                 forward_frame_step_size)):
+            target_id = target_id % n_pcds
             target_pcd = pcds[target_id].pointcloud.as_open3d_tensor()
             if not (target_id == source_id + 1 or should_add_edge_intersection(source_pcd, target_pcd)):
                 continue
@@ -314,7 +320,7 @@ def run_full_icp(dataset_dir: str,
                                                              transformation_icp,
                                                              information_icp,
                                                              uncertain=True))
-    print("Starting to optimize pose graph ...")
+    print("Optimizing pose graph ...")
     option = o3d.pipelines.registration.GlobalOptimizationOption(
             max_correspondence_distance=max_correspondence_distance,
             edge_prune_threshold=0.25,
