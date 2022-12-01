@@ -22,7 +22,7 @@ from point_cloud import Pointcloud
 from aabb_iou import aabb_intersection_ratios
 from multiprocessing import Pool
 
-   
+
 def invert_transformation_matrix(matrix):
     # http://www.info.hiroshima-cu.ac.jp/~miyazaki/knowledge/teche0053.html
     R = matrix[:3, :3]
@@ -70,13 +70,13 @@ class ParentFrame:
     def __init__(self, frames: List[FrameData]):
         self.frames = frames
         self.transform_matrix = frames[0].transform_matrix
-        
+
         self.pointcloud = frames[0].pointcloud
         # Aggregate point clouds
         for frame in frames[1:]:
             self.pointcloud = self.pointcloud + frame.pointcloud
-        
-    def get_all_frame_transforms(self) -> List[np.array]:
+
+    def get_all_frame_transforms(self) -> List[np.ndarray]:
         """Uses original transforms and ICP to compute transforms for all frames in group."""
 
         criteria_list = [
@@ -88,15 +88,15 @@ class ParentFrame:
             treg.ICPConvergenceCriteria(0.000001, 0.000001, 20),
             treg.ICPConvergenceCriteria(0.000001, 0.000001, 10)
         ]
-        voxel_sizes = o3d.utility.DoubleVector([0.25, 0.15, 0.03, 0.008, 0.002])
-
-        max_correspondence_distances = o3d.utility.DoubleVector([1.0, 0.4, 0.09, 0.04, 0.01])
+        voxel_sizes = o3d.utility.DoubleVector([0.2, 0.09, 0.03, 0.008, 0.002])
+        max_correspondence_distances = o3d.utility.DoubleVector([0.4, 0.2, 0.09, 0.04, 0.01])
         # new_pose_0 -> default
         trans_inv = invert_transformation_matrix(self.transform_matrix)
         transforms = [self.transform_matrix]
         for frame in self.frames[1:]:
             # new_pose_0 -> old_pose_i
-            trans_init = frame.transform_matrix @ trans_inv
+            # trans_init = frame.transform_matrix @ trans_inv
+            trans_init = np.eye(4)
             registration_icp = treg.multi_scale_icp(self.frames[0].pointcloud.as_open3d_tensor(),
                                   frame.pointcloud.as_open3d_tensor(),
                                   voxel_sizes,
@@ -280,8 +280,8 @@ def pairwise_registration(source, target, trans_init, max_correspondence_distanc
             treg.ICPConvergenceCriteria(0.000001, 0.000001, 20),
             treg.ICPConvergenceCriteria(0.000001, 0.000001, 10)
         ]
-    voxel_sizes = o3d.utility.DoubleVector([0.25, 0.15, 0.03, 0.008, 0.002])
-    max_correspondence_distances = o3d.utility.DoubleVector([1.0, 0.4, 0.09, 0.04, 0.01])
+    voxel_sizes = o3d.utility.DoubleVector([0.2, 0.09, 0.03, 0.008, 0.002])
+    max_correspondence_distances = o3d.utility.DoubleVector([0.4, 0.2, 0.09, 0.04, 0.01])
     registration_icp = treg.multi_scale_icp(source,
                             target,
                             voxel_sizes,
@@ -376,6 +376,7 @@ def run_full_icp(dataset_dir: str,
     odometry = np.identity(4)
     pose_graph.nodes.append(o3d.pipelines.registration.PoseGraphNode(odometry))
     n_pcds = len(pcds)
+    # n_pcds = 900  # debug
     print('Building pose graph ...')
     for source_id in tqdm(range(n_pcds)):
         source_pcd = pcds[source_id].pointcloud.as_open3d_tensor()
@@ -386,7 +387,8 @@ def run_full_icp(dataset_dir: str,
             if not (target_id == source_id + 1 or (target_id >= source_id + no_loop_closure_within_frames and target_id >= last_loop_closure + no_loop_closure_within_frames and should_add_edge_intersection(source_pcd, target_pcd))):
                 continue
             target_trans = pcds[target_id].transform_matrix
-            trans_init = target_trans @ source_trans_inv
+            # trans_init = target_trans @ source_trans_inv
+            trans_init = np.eye(4)
             transformation_icp, information_icp = pairwise_registration(source_pcd,
                                                                         target_pcd,
                                                                         o3d.core.Tensor(trans_init),
@@ -430,10 +432,14 @@ def run_full_icp(dataset_dir: str,
             o3d.pipelines.registration.GlobalOptimizationLevenbergMarquardt(),
             criteria,
             option)
-    
-    for parent_frame, node in zip(frame_data, pose_graph.nodes):
-        parent_frame.transform_matrix = node.pose
-    
+
+
+    # for parent_frame, node in zip(frame_data, pose_graph.nodes):
+    for i in range(n_pcds):
+        parent_frame = frame_data[i]
+        node = pose_graph.nodes[i]
+        parent_frame.transform_matrix = node.pose @ parent_frame.transform_matrix
+
     print("Optimizing local transformations...")
     # Get sequential transforms in parallel
     # with Pool(thread_pool_size) as p:
