@@ -353,6 +353,7 @@ def run_full_icp(dataset_dir: str,
                  pose_graph_optimization_iterations: int = 300,
                  forward_frame_step_size: int = 1,
                  no_loop_closure_within_frames: int = 12,
+                 frames_per_cluster: int = 6,
                  thread_pool_size: int = 8) -> None:
     transforms_train = os.path.join(dataset_dir,
                                     'transforms_train_original.json')
@@ -360,7 +361,7 @@ def run_full_icp(dataset_dir: str,
         train_json = json.load(f)
 
     frame_data = load_frame_data_from_dataset(dataset_dir, transforms_train)
-    frame_data = cluster_frame_data(frame_data)
+    frame_data = cluster_frame_data(frame_data, frames_per_cluster=frames_per_cluster)
     pcds = frame_data
     pose_graph = o3d.pipelines.registration.PoseGraph()
     odometry = np.identity(4)
