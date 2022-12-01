@@ -271,24 +271,33 @@ def run_pairwise_icp(dataset_dir: str):
         json.dump(train_json, f, indent=4)
 
 def pairwise_registration(source, target, trans_init, max_correspondence_distance, voxel_size=0.01):
-    registration_icp = treg.icp(
-                source,
-                target,
-                max_correspondence_distance=max_correspondence_distance,
-                init_source_to_target=trans_init,
-                estimation_method=treg.TransformationEstimationPointToPoint(),
-                criteria=treg.ICPConvergenceCriteria(max_iteration=10),
-                voxel_size=voxel_size)
+    criteria_list = [
+            treg.ICPConvergenceCriteria(relative_fitness=0.001,
+                                        relative_rmse=0.001,
+                                        max_iteration=50),
+            treg.ICPConvergenceCriteria(0.0001, 0.0001, 50),
+            treg.ICPConvergenceCriteria(0.00001, 0.00001, 30),
+            treg.ICPConvergenceCriteria(0.000001, 0.000001, 20),
+            treg.ICPConvergenceCriteria(0.000001, 0.000001, 10)
+        ]
+    voxel_sizes = o3d.utility.DoubleVector([0.25, 0.15, 0.03, 0.008, 0.002])
+    max_correspondence_distances = o3d.utility.DoubleVector([1.0, 0.4, 0.09, 0.04, 0.01])
+    registration_icp = treg.multi_scale_icp(source,
+                            target,
+                            voxel_sizes,
+                            criteria_list,
+                            max_correspondence_distances,
+                            trans_init,
+                            treg.TransformationEstimationPointToPoint())
 
     if registration_icp.fitness == 0 and registration_icp.inlier_rmse == 0:
         # no correspondence
         return None, None
-
     transformation_icp = registration_icp.transformation.numpy()
     try:
         information_icp = treg.get_information_matrix(source,
                                                       target,
-                                                      max_correspondence_distance,
+                                                      max_correspondence_distances[-1],
                                                       transformation_icp).numpy()
     except RuntimeError as e:
         information_icp = np.eye(6)
@@ -353,7 +362,7 @@ def run_full_icp(dataset_dir: str,
                  pose_graph_optimization_iterations: int = 300,
                  forward_frame_step_size: int = 1,
                  no_loop_closure_within_frames: int = 12,
-                 frames_per_cluster: int = 6,
+                 frames_per_cluster: int = 1,
                  thread_pool_size: int = 8) -> None:
     transforms_train = os.path.join(dataset_dir,
                                     'transforms_train_original.json')
