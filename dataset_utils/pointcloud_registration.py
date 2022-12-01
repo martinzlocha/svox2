@@ -10,6 +10,7 @@ import json
 import os
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List
+import itertools
 
 import imageio.v2 as imageio
 import numpy as np
@@ -19,7 +20,18 @@ from utils import (depth_file_path_from_frame,
                                  img_file_path_from_frame, load_depth_file)
 from point_cloud import Pointcloud
 from aabb_iou import aabb_intersection_ratios
+from multiprocessing import Pool
 
+   
+def invert_transformation_matrix(matrix):
+    # http://www.info.hiroshima-cu.ac.jp/~miyazaki/knowledge/teche0053.html
+    R = matrix[:3, :3]
+    t = matrix[:3, 3:]
+    inverted_matrix = np.concatenate([R.T, -R.T @ t], axis=-1)
+    inverted_matrix = np.concatenate([inverted_matrix,
+                                 np.array([[0., 0., 0., 1.]])],
+                                 axis=0)
+    return inverted_matrix
 
 class FrameData:
     def __init__(self, frame_data: Dict, dataset_dir: str, camera_angle_x: float):
@@ -53,6 +65,49 @@ class FrameData:
         squared_distance = np.sum(pointcloud_distance ** 2)
 
         return 1 / (1 + squared_distance)
+
+class ParentFrame:
+    def __init__(self, frames: List[FrameData]):
+        self.frames = frames
+        self.transform_matrix = frames[0].transform_matrix
+        
+        self.pointcloud = frames[0].pointcloud
+        # Aggregate point clouds
+        for frame in frames[1:]:
+            self.pointcloud = self.pointcloud + frame.pointcloud
+        
+    def get_all_frame_transforms(self) -> List[np.array]:
+        """Uses original transforms and ICP to compute transforms for all frames in group."""
+
+        criteria_list = [
+            treg.ICPConvergenceCriteria(relative_fitness=0.001,
+                                        relative_rmse=0.001,
+                                        max_iteration=50),
+            treg.ICPConvergenceCriteria(0.0001, 0.0001, 50),
+            treg.ICPConvergenceCriteria(0.00001, 0.00001, 30),
+            treg.ICPConvergenceCriteria(0.000001, 0.000001, 20),
+            treg.ICPConvergenceCriteria(0.000001, 0.000001, 10)
+        ]
+        voxel_sizes = o3d.utility.DoubleVector([0.25, 0.15, 0.03, 0.008, 0.002])
+
+        max_correspondence_distances = o3d.utility.DoubleVector([1.0, 0.4, 0.09, 0.04, 0.01])
+        # new_pose_0 -> default
+        trans_inv = invert_transformation_matrix(self.transform_matrix)
+        transforms = [self.transform_matrix]
+        for frame in self.frames[1:]:
+            # new_pose_0 -> old_pose_i
+            trans_init = frame.transform_matrix @ trans_inv
+            registration_icp = treg.multi_scale_icp(self.frames[0].pointcloud.as_open3d_tensor(),
+                                  frame.pointcloud.as_open3d_tensor(),
+                                  voxel_sizes,
+                                  criteria_list,
+                                  max_correspondence_distances,
+                                  trans_init,
+                                  treg.TransformationEstimationPointToPoint())
+            np_transform = registration_icp.transformation.numpy()
+            transforms.append(np_transform @ self.transform_matrix)
+        return transforms
+
 
 
 def draw_registration_result(source, target, transformation):
@@ -240,17 +295,6 @@ def pairwise_registration(source, target, trans_init, max_correspondence_distanc
     return transformation_icp, information_icp
 
 
-def invert_transformation_matrix(matrix):
-    # http://www.info.hiroshima-cu.ac.jp/~miyazaki/knowledge/teche0053.html
-    R = matrix[:3, :3]
-    t = matrix[:3, 3:]
-    inverted_matrix = np.concatenate([R.T, -R.T @ t], axis=-1)
-    inverted_matrix = np.concatenate([inverted_matrix,
-                                 np.array([[0., 0., 0., 1.]])],
-                                 axis=0)
-    return inverted_matrix
-
-
 def has_aabb_one_dimensional_overlap(segment1: np.ndarray, segment2: np.ndarray) -> bool:
     # Segement: [2] (min, max)
     return segment1[1] >= segment2[0] and segment2[1] >= segment1[0]
@@ -258,7 +302,7 @@ def has_aabb_one_dimensional_overlap(segment1: np.ndarray, segment2: np.ndarray)
 def should_add_edge_intersection(pcd1: o3d.t.geometry.PointCloud,
                                  pcd2: o3d.t.geometry.PointCloud,
                                  scale: float = 0.3,
-                                 iou_threshold = 0.85) -> bool:
+                                 iou_threshold = 0.99) -> bool:
     # # Downscaled AABB
     # bounding_box1 = pcd1.get_axis_aligned_bounding_box()
     # bounding_box2 = pcd2.get_axis_aligned_bounding_box()
@@ -296,17 +340,27 @@ def should_add_edge_intersection(pcd1: o3d.t.geometry.PointCloud,
     return loop_should_be_closed
 
 
+def unpack_parent_frame(parent_frame: ParentFrame) -> List[np.array]:
+    return parent_frame.get_all_frame_transforms()
+
+def cluster_frame_data(frames: List[FrameData],
+                       frames_per_cluster: int = 2) -> List[ParentFrame]:
+    return [ParentFrame(frames[i:i + frames_per_cluster]) for i in range(0, len(frames), frames_per_cluster)]
+
+
 def run_full_icp(dataset_dir: str,
                  max_correspondence_distance: float = 0.1,
                  pose_graph_optimization_iterations: int = 300,
                  forward_frame_step_size: int = 1,
-                 no_loop_closure_within_frames: int = 12) -> None:
+                 no_loop_closure_within_frames: int = 12,
+                 thread_pool_size: int = 8) -> None:
     transforms_train = os.path.join(dataset_dir,
                                     'transforms_train_original.json')
     with open(transforms_train, 'r') as f:
         train_json = json.load(f)
 
     frame_data = load_frame_data_from_dataset(dataset_dir, transforms_train)
+    frame_data = cluster_frame_data(frame_data)
     pcds = frame_data
     pose_graph = o3d.pipelines.registration.PoseGraph()
     odometry = np.identity(4)
@@ -316,12 +370,8 @@ def run_full_icp(dataset_dir: str,
     for source_id in tqdm(range(n_pcds)):
         source_pcd = pcds[source_id].pointcloud.as_open3d_tensor()
         source_trans_inv = invert_transformation_matrix(pcds[source_id].transform_matrix)
-        # for target_id in [source_id + 1] + list(range(source_id + forward_frame_step_size,
-        #                                         n_pcds,
-        #                                         forward_frame_step_size)):
         last_loop_closure = source_id
         for target_id in range(source_id+1, n_pcds, forward_frame_step_size):
-            # target_id = target_id % n_pcds
             target_pcd = pcds[target_id].pointcloud.as_open3d_tensor()
             if not (target_id == source_id + 1 or (target_id >= source_id + no_loop_closure_within_frames and target_id >= last_loop_closure + no_loop_closure_within_frames and should_add_edge_intersection(source_pcd, target_pcd))):
                 continue
@@ -348,7 +398,6 @@ def run_full_icp(dataset_dir: str,
             else:  # loop closure case
                 if transformation_icp is None or information_icp is None:
                     continue
-                print("closing loop for", source_id, target_id)
                 # print(f"closing the loop for frames {source_id} and {target_id}")
                 last_loop_closure = target_id
                 pose_graph.edges.append(
@@ -371,15 +420,21 @@ def run_full_icp(dataset_dir: str,
             o3d.pipelines.registration.GlobalOptimizationLevenbergMarquardt(),
             criteria,
             option)
+    
+    for parent_frame, node in zip(frame_data, pose_graph.nodes):
+        parent_frame.transform_matrix = node.pose
+    
+    print("Optimizing local transformations...")
+    # Get sequential transforms in parallel
+    # with Pool(thread_pool_size) as p:
+    new_transforms = list(tqdm(map(unpack_parent_frame, frame_data), total=len(frame_data)))
+    new_transforms = itertools.chain(*new_transforms)
 
-    new_frames = []
     print("Writing results ...")
     transforms_train_shifted = os.path.join(dataset_dir, 'transforms_train_original_shifted.json')
     with open(transforms_train_shifted, 'w') as f:
-        for i, node in enumerate(pose_graph.nodes):
-            new_frame = frame_data[i]
-            new_frame.transform_matrix = node.pose
-            new_frames.append(new_frame)
+        for i, (transform, json_frame) in enumerate(zip(new_transforms, train_json['frames'])):
+            json_frame['transform_matrix'] = transform.tolist()
         json.dump(train_json, f, indent=4)
 
 
