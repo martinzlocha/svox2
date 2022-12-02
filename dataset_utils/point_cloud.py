@@ -101,7 +101,7 @@ class Pointcloud:
         """
         Returns an Open3D pointcloud
         """
-        if self._open3d_pcd is None:
+        if self._open3d_pcd is not None:
             return self._open3d_pcd
 
         pcd = o3d.geometry.PointCloud()
@@ -200,15 +200,38 @@ class Pointcloud:
         self._centre_of_mass = centre_of_mass
         return centre_of_mass
 
+    def prune(self, n_points) -> 'Pointcloud':
+        """
+        Useful for visualizing the pointcloud. Returns a pointcloud with at most n_points.
+        """
+
+        print("Pruning pointcloud from {} to {}".format(self._points.shape[0], n_points))
+
+        if self._points.shape[0] <= n_points:
+            return self
+
+        indices = np.random.choice(self._points.shape[0], n_points, replace=False)
+        points = self._points[indices]
+        colors = self._colors[indices] if self._colors is not None else None
+
+        return Pointcloud(points, colors)
+
 
 def stack_pointclouds(pointclouds: List[Pointcloud]) -> Pointcloud:
     """
     Stack a list of pointclouds into a single pointcloud
     """
-    points = np.concatenate([pc._points for pc in pointclouds], axis=0)
+    print("Stacking pointclouds")
+
+    # points = np.concatenate([pc._points for pc in pointclouds], axis=0)
+    with ThreadPoolExecutor() as executor:
+        torch_points = list(executor.map(lambda pc: pc.as_torch_tensor()[0], pointclouds))
+
+    points = torch.concat(torch_points, dim=0).numpy()
 
     if all(pc._colors is not None for pc in pointclouds):
-        colors = np.concatenate([pc._colors for pc in pointclouds], axis=0)  # type: ignore
+        # colors = np.concatenate([pc._colors for pc in pointclouds], axis=0)  # type: ignore
+        colors = torch.concat([pcd.as_torch_tensor()[1] for pcd in pointclouds], dim=0).numpy()  # type: ignore
     elif all(pc._colors is None for pc in pointclouds):
         colors = None
     else:
