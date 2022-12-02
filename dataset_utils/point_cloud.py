@@ -87,7 +87,10 @@ class Pointcloud:
         """
         Returns a tuple of (points, colors)
         """
-        return torch.from_numpy(self._points), torch.from_numpy(self._colors) if self._colors is not None else None
+        pcd = torch.from_numpy(self._points), torch.from_numpy(self._colors) if self._colors is not None else None
+
+        return pcd
+
 
     def as_open3d(self) -> o3d.geometry.PointCloud:
         """
@@ -106,8 +109,10 @@ class Pointcloud:
         self._open3d_pcd = pcd
         return pcd
 
-    def as_open3d_tensor(self, device: o3c.Device = o3c.Device("CPU:0")) -> o3d.t.geometry.PointCloud:
+    def as_open3d_tensor(self, device: o3c.Device = o3c.Device("CPU:0"), estimate_normals: bool = False) -> o3d.t.geometry.PointCloud:
         if self._open3d_tensor_pcd is not None:
+            if estimate_normals and 'normals' not in self._open3d_tensor_pcd.point:
+                self._open3d_tensor_pcd.estimate_normals(nn=30, radius=0.15)
             return self._open3d_tensor_pcd.to(device)
 
         pcd = o3d.t.geometry.PointCloud(device)
@@ -115,9 +120,10 @@ class Pointcloud:
         if self._colors is not None:
             pcd.point.colors = o3c.Tensor(np.asarray(self._colors), device=device, dtype=o3c.Dtype.Float32)
 
-        # pcd.estimate_normals(max_nn=30, radius=0.15)
-        self._open3d_tensor_pcd = pcd
+        if estimate_normals:
+            pcd.estimate_normals(max_nn=30, radius=0.15)
 
+        self._open3d_tensor_pcd = pcd
         return pcd
 
     def transform_(self, transformation_matrix: np.ndarray):
