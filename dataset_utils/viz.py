@@ -6,9 +6,9 @@ import open3d as o3d
 import open3d.visualization.gui as gui
 import open3d.visualization.rendering as rendering
 import os
-from point_cloud import Pointcloud_DEPRECATED
-import torch
+from point_cloud import Pointcloud_DEPRECATED, Pointcloud, stack_pointclouds
 from fire import Fire
+from pointcloud_registration import load_frame_data_from_dataset
 
 MAX_POINTCLOUD_POINTS = 1000000
 
@@ -65,6 +65,11 @@ def construct_cameras_geometry(transforms: List[np.ndarray]) -> o3d.geometry.Lin
     geometry.paint_uniform_color(color)
 
     return geometry
+
+def load_pointcloud_from_dataset(dataset_dir: str, transforms_file: str) -> Pointcloud:
+    frame_data = load_frame_data_from_dataset(dataset_dir, transforms_file)
+    pointcloud = stack_pointclouds([frame.pointcloud for frame in frame_data])
+    return pointcloud
 
 
 class VizApplication:
