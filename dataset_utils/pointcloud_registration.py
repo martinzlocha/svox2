@@ -109,7 +109,6 @@ class ParentFrame:
         return transforms
 
 
-
 def draw_registration_result(source, target, transformation):
     source_temp = copy.deepcopy(source)
     target_temp = copy.deepcopy(target)
@@ -281,14 +280,20 @@ def pairwise_registration(source, target, trans_init, max_correspondence_distanc
             treg.ICPConvergenceCriteria(0.000001, 0.000001, 10)
         ]
     voxel_sizes = o3d.utility.DoubleVector([0.2, 0.09, 0.03, 0.008, 0.002])
-    max_correspondence_distances = o3d.utility.DoubleVector([0.4, 0.2, 0.09, 0.04, 0.01])
+    max_correspondence_distances = o3d.utility.DoubleVector([0.6, 0.2, 0.09, 0.04, 0.01])
+
+    mu, sigma = 0, 0.5  # mean and standard deviation
+    estimation = treg.TransformationEstimationPointToPlane(
+        treg.robust_kernel.RobustKernel(
+        treg.robust_kernel.RobustKernelMethod.TukeyLoss, sigma))
+
     registration_icp = treg.multi_scale_icp(source,
                             target,
                             voxel_sizes,
                             criteria_list,
                             max_correspondence_distances,
                             trans_init,
-                            treg.TransformationEstimationPointToPoint())
+                            estimation)
 
     if registration_icp.fitness == 0 and registration_icp.inlier_rmse == 0:
         # no correspondence
@@ -358,7 +363,7 @@ def cluster_frame_data(frames: List[FrameData],
 
 
 def run_full_icp(dataset_dir: str,
-                 max_correspondence_distance: float = 0.1,
+                 max_correspondence_distance: float = 0.4,
                  pose_graph_optimization_iterations: int = 300,
                  forward_frame_step_size: int = 1,
                  no_loop_closure_within_frames: int = 12,
@@ -376,14 +381,14 @@ def run_full_icp(dataset_dir: str,
     odometry = np.identity(4)
     pose_graph.nodes.append(o3d.pipelines.registration.PoseGraphNode(odometry))
     n_pcds = len(pcds)
-    # n_pcds = 900  # debug
+    n_pcds = 900  # debug
     print('Building pose graph ...')
     for source_id in tqdm(range(n_pcds)):
-        source_pcd = pcds[source_id].pointcloud.as_open3d_tensor()
+        source_pcd = pcds[source_id].pointcloud.as_open3d_tensor(estimate_normals=True)
         source_trans_inv = invert_transformation_matrix(pcds[source_id].transform_matrix)
         last_loop_closure = source_id
         for target_id in range(source_id+1, n_pcds, forward_frame_step_size):
-            target_pcd = pcds[target_id].pointcloud.as_open3d_tensor()
+            target_pcd = pcds[target_id].pointcloud.as_open3d_tensor(estimate_normals=True)
             if not (target_id == source_id + 1 or (target_id >= source_id + no_loop_closure_within_frames and target_id >= last_loop_closure + no_loop_closure_within_frames and should_add_edge_intersection(source_pcd, target_pcd))):
                 continue
             target_trans = pcds[target_id].transform_matrix
@@ -451,6 +456,8 @@ def run_full_icp(dataset_dir: str,
     with open(transforms_train_shifted, 'w') as f:
         for i, (transform, json_frame) in enumerate(zip(new_transforms, train_json['frames'])):
             json_frame['transform_matrix'] = transform.tolist()
+
+        train_json['frames'] = train_json['frames'][:n_pcds]  # debug
         json.dump(train_json, f, indent=4)
 
 
