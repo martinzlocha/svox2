@@ -71,7 +71,7 @@ class VizApplication:
     def __init__(self,
                  dataset_dir: str,
                  grid_dir: Optional[str] = None):
-        potential_transforms_files = ["transforms_train.json", "transforms_test.json", "transforms_train_original.json", "transforms_test_original.json", "transforms_train_original_shifted.json"]
+        potential_transforms_files = ["transforms_train.json", "transforms_test.json", "transforms_train_original.json", "transforms_test_original.json", "transforms_train_original_shifted.json", "transforms_train_original_shifted_point_to_point.json", "transforms_train_original_shifted_point_to_plane.json"]
         transforms_files = [f for f in os.listdir(dataset_dir) if f in potential_transforms_files]
 
         self.transforms = {}
@@ -379,15 +379,21 @@ class VizApplication:
         pointcloud = self.pointclouds[pointcloud_key]
         n_frames = pointcloud._n_frames
         assert n_frames is not None
+        first_frame_value = min(self.frame_by_frame_slider_1.int_value, n_frames-1)
+        second_frame_value = min(self.frame_by_frame_slider_2.int_value, n_frames-1)
+
         self.frame_by_frame_slider_1.set_limits(0, n_frames - 1)
-        self.frame_by_frame_slider_1.int_value = 0
+        # self.frame_by_frame_slider_1.int_value = 0
         self.frame_by_frame_slider_2.set_limits(0, n_frames - 1)
-        self.frame_by_frame_slider_2.int_value = 0
+        # self.frame_by_frame_slider_2.int_value = 0
 
         self._current_slider_pointcloud_idx = idx
 
-        self._on_frame_by_frame_slider_change(0, 'first_slider_object')
-        self._on_frame_by_frame_slider_change(0, 'second_slider_object')
+        self.frame_by_frame_slider_1.int_value = first_frame_value
+        self.frame_by_frame_slider_2.int_value = second_frame_value
+
+        self._on_frame_by_frame_slider_change(first_frame_value, 'first_slider_object')
+        self._on_frame_by_frame_slider_change(second_frame_value, 'second_slider_object')
 
     def _on_frame_by_frame_slider_change(self, value, object_name: str):
         if self._current_slider_pointcloud_idx is None:
@@ -411,7 +417,7 @@ class VizApplication:
 
         slider = self.frame_by_frame_slider_1 if object_name == 'first_slider_object' else self.frame_by_frame_slider_2
         slider.int_value = min(n_frames-1, slider.int_value + 1)  # set the value
-        self._on_frame_by_frame_slider_change(min(n_frames-1, slider.int_value + 1), object_name)
+        self._on_frame_by_frame_slider_change(slider.int_value, object_name)
 
     def _rewind_slider_pointcloud(self, object_name: str):
         if self._current_slider_pointcloud_idx is None:
@@ -419,7 +425,7 @@ class VizApplication:
 
         slider = self.frame_by_frame_slider_1 if object_name == 'first_slider_object' else self.frame_by_frame_slider_2
         slider.int_value = max(0, slider.int_value - 1)  # set the value
-        self._on_frame_by_frame_slider_change(max(0, slider.int_value - 1), object_name)
+        self._on_frame_by_frame_slider_change(slider.int_value, object_name)
 
     def _forward_slider_pointclouds(self):
         self._forward_slider_pointcloud('first_slider_object')
