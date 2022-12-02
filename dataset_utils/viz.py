@@ -6,9 +6,10 @@ import open3d as o3d
 import open3d.visualization.gui as gui
 import open3d.visualization.rendering as rendering
 import os
-from point_cloud import Pointcloud_DEPRECATED
+from point_cloud import Pointcloud, stack_pointclouds
 from fire import Fire
 from abstract_viz import AbstractViz
+from pointcloud_registration import load_frame_data_from_dataset
 
 MAX_POINTCLOUD_POINTS = 1000000
 
@@ -66,6 +67,10 @@ def construct_cameras_geometry(transforms: List[np.ndarray]) -> o3d.geometry.Lin
 
     return geometry
 
+def load_pointcloud_from_dataset(dataset_dir: str, transforms_file: str) -> List[Pointcloud]:
+    frame_data = load_frame_data_from_dataset(dataset_dir, transforms_file)
+    return [frame.pointcloud for frame in frame_data]
+
 
 class VizApplication(AbstractViz):
     def __init__(self,
@@ -110,13 +115,15 @@ class VizApplication(AbstractViz):
             self.add_show_checkbox_for_geometry(f"cam_{transform_name}", "cameras_checkbox_section", transform_name, False)
 
     def _add_pointclouds(self, dataset_dir: str, transforms_files: Iterable[str]) -> None:
-        self.pointclouds: Dict[str, Pointcloud_DEPRECATED] = {}
+        self.pointclouds: Dict[str, List[Pointcloud]] = {}
         self.add_settings_panel_section("pointclouds_checkbox_section", "Show Pointcloud")
         for transform_name in transforms_files:
             print(f"Adding {transform_name} pointcloud geometry...")
-            pointcloud = Pointcloud_DEPRECATED.from_dataset(dataset_dir, [transform_name])
+            # pointcloud = Pointcloud_DEPRECATED.from_dataset(dataset_dir, [transform_name])
+            pointcloud = load_pointcloud_from_dataset(dataset_dir, transform_name)
             self.pointclouds[transform_name] = pointcloud
-            self.add_geometry(f"pcd_{transform_name}", pointcloud.get_pruned_pointcloud(MAX_POINTCLOUD_POINTS).to_open3d())
+            open3d_pointcloud = stack_pointclouds(pointcloud).prune(MAX_POINTCLOUD_POINTS).as_open3d()
+            self.add_geometry(f"pcd_{transform_name}", open3d_pointcloud, self.materials.pointcloud)
             self.add_show_checkbox_for_geometry(f"pcd_{transform_name}", "pointclouds_checkbox_section", transform_name, False)
 
     def _add_unit_cube(self):
@@ -263,7 +270,7 @@ class VizApplication(AbstractViz):
     def _on_frame_by_frame_select(self, idx):
         pointcloud_key = list(self.pointclouds.keys())[idx]
         pointcloud = self.pointclouds[pointcloud_key]
-        n_frames = pointcloud._n_frames
+        n_frames = len(pointcloud)
         assert n_frames is not None
         first_frame_value = min(self.frame_by_frame_slider_1.int_value, n_frames-1)
         second_frame_value = min(self.frame_by_frame_slider_2.int_value, n_frames-1)
@@ -290,7 +297,7 @@ class VizApplication(AbstractViz):
         pointcloud = self.pointclouds[pointcloud_key]
         self._scene.scene.remove_geometry(f"{object_name}")
 
-        self._scene.scene.add_geometry(f"{object_name}", pointcloud.from_frame(value).to_open3d(), self.materials.pointcloud)
+        self._scene.scene.add_geometry(f"{object_name}", pointcloud[value].as_open3d(), self.materials.pointcloud)
 
     def _forward_slider_pointcloud(self, object_name: str):
         if self._current_slider_pointcloud_idx is None:
@@ -298,7 +305,7 @@ class VizApplication(AbstractViz):
 
         pointcloud_key = list(self.pointclouds.keys())[self._current_slider_pointcloud_idx]
         pointcloud = self.pointclouds[pointcloud_key]
-        n_frames = pointcloud._n_frames
+        n_frames = len(pointcloud)
         assert n_frames is not None
 
         slider = self.frame_by_frame_slider_1 if object_name == 'first_slider_object' else self.frame_by_frame_slider_2
