@@ -1673,7 +1673,7 @@ class SparseGrid(nn.Module):
             radius=self.radius.tolist(),
             center=self.center.tolist(),
             device=device,
-            depth_limit=7
+            depth_limit=10
         )
 
         curr_reso = self.links.shape
