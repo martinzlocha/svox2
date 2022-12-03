@@ -1,7 +1,7 @@
 from functools import partial
 import json
 import os
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 import numpy as np
 import torch
 import imageio
