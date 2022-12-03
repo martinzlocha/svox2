@@ -30,7 +30,6 @@ from torch.utils.tensorboard import SummaryWriter
 WANDB_ON=True
 
 from tqdm import tqdm
-from typing import NamedTuple, Optional, Union
 
 
 def log_image(image_name, image, global_step):
@@ -444,12 +443,8 @@ if args.init_from_point_cloud:
     pc_point_count = 100000000
     pc_orig = load_pointcloud(args.data_dir)
     pc = pc_orig.get_pruned_pointcloud(pc_point_count)
-    pc_points = pc.points.cuda()
-    negative_points = torch.rand([pc_point_count, 3]).cuda() * 0.2 - 0.1
     pc_keep_points = pc.points.cuda()
     print(f"Keep points: {pc_keep_points.size()}")
-    #optimal_density = get_links(pc_points)
-    #neg_optimal_density = get_links(negative_points)
     set_grid_density(grid, pc_keep_points)
     # grid.save_voxels_to_dict(ckpt_path)
 
@@ -601,75 +596,6 @@ while True:
             batch_depths = dset.rays.depths[batch_begin: batch_end]
             rgb_gt = dset.rays.gt[batch_begin: batch_end]
             rays = svox2.Rays(batch_origins, batch_dirs, batch_depths)
-
-            """
-            if iter_id % 500 == 0 and iter_id > 0:
-                pc = pc_orig.get_pruned_pointcloud(pc_point_count)
-                pc_points = pc.points.cuda()
-                negative_points = torch.rand([pc_point_count, 3]).cuda() * 0.2 - 0.1
-                optimal_density = get_links(pc_points)
-                neg_optimal_density = get_links(negative_points)
-
-            sigmas = []
-            for links in optimal_density[0]:
-                sigma, _ = grid._fetch_links(links)
-                sigmas.append(sigma)
-            
-            sigma000 = sigmas[0]
-            sigma001 = sigmas[1]
-            sigma010 = sigmas[2]
-            sigma011 = sigmas[3]
-            sigma100 = sigmas[4]
-            sigma101 = sigmas[5]
-            sigma110 = sigmas[6]
-            sigma111 = sigmas[7]
-            wa, wb = optimal_density[-1]
-
-            c00 = sigma000 * wa[:, 2:] + sigma001 * wb[:, 2:]
-            c01 = sigma010 * wa[:, 2:] + sigma011 * wb[:, 2:]
-            c10 = sigma100 * wa[:, 2:] + sigma101 * wb[:, 2:]
-            c11 = sigma110 * wa[:, 2:] + sigma111 * wb[:, 2:]
-            c0 = c00 * wa[:, 1:2] + c01 * wb[:, 1:2]
-            c1 = c10 * wa[:, 1:2] + c11 * wb[:, 1:2]
-            samples_sigma = c0 * wa[:, :1] + c1 * wb[:, :1]
-            (1e-2 * -samples_sigma.mean()).backward()
-
-            sigmas = []
-            for links in neg_optimal_density[0]:
-                sigma, _ = grid._fetch_links(links)
-                sigmas.append(sigma)
-            
-            sigma000 = sigmas[0]
-            sigma001 = sigmas[1]
-            sigma010 = sigmas[2]
-            sigma011 = sigmas[3]
-            sigma100 = sigmas[4]
-            sigma101 = sigmas[5]
-            sigma110 = sigmas[6]
-            sigma111 = sigmas[7]
-            wa, wb = neg_optimal_density[-1]
-
-            c00 = sigma000 * wa[:, 2:] + sigma001 * wb[:, 2:]
-            c01 = sigma010 * wa[:, 2:] + sigma011 * wb[:, 2:]
-            c10 = sigma100 * wa[:, 2:] + sigma101 * wb[:, 2:]
-            c11 = sigma110 * wa[:, 2:] + sigma111 * wb[:, 2:]
-            c0 = c00 * wa[:, 1:2] + c01 * wb[:, 1:2]
-            c1 = c10 * wa[:, 1:2] + c11 * wb[:, 1:2]
-            samples_sigma = c0 * wa[:, :1] + c1 * wb[:, :1]
-            (1e-2 * samples_sigma.mean()).backward()
-            """
-            ### ADD DEPTH LOSS ###
-            #total_loss = 0.
-            #aggregate = torch.sum(grid.density_data)
-            #total_pos = 0.
-            #total_cnt = 0
-            #for idx in optimal_density:
-            #    pos_sum = torch.sum(grid.density_data[idx])
-            #    total_loss = total_loss + (pos_sum / idx.shape[0])
-            #    total_pos = total_pos + pos_sum
-            #    total_cnt = total_cnt + idx.shape[0]
-            #total_loss -= (aggregate - total_pos) / (grid.density_data.shape[0] - total_cnt)
-
 
             lambda_sparsity = args.lambda_sparsity
             if gstep_id >= 64000:
