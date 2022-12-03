@@ -15,7 +15,7 @@ import numpy as np
 import concurrent.futures
 import os
 from os import listdir
-from os.path import isfile, join, splittext
+from os.path import isfile, join
 
 os.environ["OPENCV_IO_ENABLE_OPENEXR"]="1"
 
@@ -48,11 +48,11 @@ def load_confidence_file(fpath, width, height) -> torch.Tensor:
 
 
 def get_extension(dir_path):
-    file_extensions = [splitext(f)[1] for f in listdir(dir_path) if isfile(join(dir_path, f))]
+    file_extensions = [os.path.splitext(f)[1] for f in listdir(dir_path) if isfile(join(dir_path, f))]
     extension_set = set(file_extensions)
     if len(extension_set) > 1:
         raise Exception("Expected all files in a directory to have the same extension.")
-    return extension_set[0]
+    return list(extension_set)[0]
 
 class NeRFDataset(DatasetBase):
     """
@@ -100,7 +100,8 @@ class NeRFDataset(DatasetBase):
         split_name = split if split != "test_train" else "train"
         data_path = path.join(root, split_name)
         data_json = path.join(root, "transforms_" + split_name + ".json")
-        depth_data_path = path.join(root, "depth")
+        depth_dir = split_name + "_depth" if path.isdir(path.join(root, split_name + '_depth')) else 'depth'
+        depth_data_path = path.join(root, depth_dir)
         confidence_data_path = path.join(root, "confidence")
         image_extension = get_extension(data_path)
 
@@ -111,7 +112,7 @@ class NeRFDataset(DatasetBase):
         # OpenGL -> OpenCV
         cam_trans = torch.diag(torch.tensor([1, -1, 1, 1], dtype=torch.float32))
 
-        paths = map(lambda frame: path.join(data_path, splittext(path.basename(frame["file_path"]))[0] + "." + image_extension), j["frames"])
+        paths = map(lambda frame: path.join(data_path, os.path.splitext(path.basename(frame["file_path"]))[0] + image_extension), j["frames"])
         with concurrent.futures.ThreadPoolExecutor() as executor:
             all_gt = list(tqdm(executor.map(partial(load_image, scale=scale), paths), total=len(j["frames"])))
 
@@ -163,15 +164,15 @@ class NeRFDataset(DatasetBase):
         self.intrins_full : Intrin = Intrin(focal, focal, cx, cy)
 
         if use_depth and split == 'train':
-            depth_paths = map(lambda frame: path.join(depth_data_path, splittext(path.basename(frame["file_path"]))[0] + ".exr"), j["frames"])
+            depth_paths = map(lambda frame: path.join(depth_data_path, os.path.splitext(path.basename(frame["file_path"]))[0] + ".exr"), j["frames"])
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 depths = list(tqdm(executor.map(partial(load_depth_file, width=self.w_full, height=self.h_full), depth_paths), total=len(j["frames"])))
 
             depths = torch.stack(depths).float()
             self.depths = depths * scene_scale
 
-            if not path.isdir(confidence_data_path):
-                confidence_paths = map(lambda frame: path.join(confidence_data_path, splittext(path.basename(frame["file_path"]))[0] + ".conf"), j["frames"])
+            if path.isdir(confidence_data_path):
+                confidence_paths = map(lambda frame: path.join(confidence_data_path, os.path.splitext(path.basename(frame["file_path"]))[0] + ".conf"), j["frames"])
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     confidences = list(tqdm(executor.map(partial(load_confidence_file, width=self.w_full, height=self.h_full), confidence_paths), total=len(j["frames"])))
                 self.confidences = torch.stack(confidences).byte()
