@@ -1,9 +1,0 @@
-fire
-open3d
-imageio
-numpy
-opencv-python
-torch
-tqdm
-opencv-contrib-python
-pyliblzfse

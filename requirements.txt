@@ -2,6 +2,7 @@ tqdm
 scipy
 imageio
 opencv-python
+opencv-contrib-python
 matplotlib
 tensorboard
 imageio-ffmpeg
@@ -9,3 +10,7 @@ moviepy
 pyliblzfse
 wandb
 lpips
+open3d
+fire
+numpy
+torch
