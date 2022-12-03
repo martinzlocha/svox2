@@ -278,8 +278,8 @@ reso_list = json.loads(args.reso)
 reso_id = 0
 
 def load_pointcloud(dataset_path: str = '/root/svox2/data/livingroom/') -> point_cloud.Pointcloud:
-    translation = torch.Tensor([1.2, 0, 1.4])
-    scaling = 0.2
+    translation = torch.Tensor([args.scene_x_translate, args.scene_y_translate, args.scene_z_translate])
+    scaling = args.scene_scale
     return point_cloud.Pointcloud.from_dataset(dataset_path,
                                                ['transforms_train.json'],
                                                translation=translation,

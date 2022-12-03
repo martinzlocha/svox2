@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from functools import lru_cache, partial
+from functools import partial
 import json
 import os
 import liblzfse
@@ -51,7 +51,6 @@ def get_rays(transform: torch.Tensor, width: int, height: int, focal: float) -> 
     origins = transform[:3, 3].flatten().unsqueeze(0).expand(height * width, 3).contiguous()  # [H*W, 3]
     return Rays(origins=origins, dirs=dirs)
 
-@lru_cache(maxsize=20000)
 def load_depth_file(fpath: str) -> torch.Tensor:
     os.environ["OPENCV_IO_ENABLE_OPENEXR"]="1"
 
@@ -60,7 +59,6 @@ def load_depth_file(fpath: str) -> torch.Tensor:
 
     return torch.from_numpy(depth)
 
-@lru_cache(maxsize=20000)
 def load_confidence_file(fpath: str) -> torch.Tensor:
     with open(fpath, 'rb') as confidence_fh:
         raw_bytes = confidence_fh.read()
@@ -69,7 +67,7 @@ def load_confidence_file(fpath: str) -> torch.Tensor:
     return torch.from_numpy(confidence_img)
 
 def _img_file_path_from_frame(frame: dict, potential_images_dir: str, dataset_dir: str) -> str:
-    img_path = frame['file_path']
+    img_path = os.path.splitext(os.path.basename(frame['file_path']))[0]
 
     extensions = ['.jpg', '.png', '']
     parent_dirs = [potential_images_dir, dataset_dir, '']
@@ -105,10 +103,6 @@ def _get_points_and_features(frame: Dict, dataset_path: str, images_dir: str, de
     if clipping_distance is not None:
         depth = torch.clip(depth, 0, clipping_distance)
 
-    confidence_path = _confidence_file_path_from_frame(frame, confidence_dir, dataset_path)
-    confidence = load_confidence_file(confidence_path)
-    confidence = confidence.reshape(-1, 1)
-
     focal = float(0.5 * depth_width / np.tan(0.5 * camera_angle_x))
     transformation_matrix = torch.tensor(frame["transform_matrix"])
     if translation is not None:
@@ -129,8 +123,13 @@ def _get_points_and_features(frame: Dict, dataset_path: str, images_dir: str, de
 
     assert img.shape[0] == img_points.shape[0], f"img.shape: {img.shape}, img_points.shape: {img_points.shape}"
 
-    img = img[confidence[:, 0] == 2, :]
-    img_points = img_points[confidence[:, 0] == 2, :]
+    confidence_path = _confidence_file_path_from_frame(frame, confidence_dir, dataset_path)
+    if os.path.isfile(confidence_path):
+        confidence = load_confidence_file(confidence_path)
+        confidence = confidence.reshape(-1, 1)
+
+        img = img[confidence[:, 0] == 2, :]
+        img_points = img_points[confidence[:, 0] == 2, :]
 
     return img_points, img
 
