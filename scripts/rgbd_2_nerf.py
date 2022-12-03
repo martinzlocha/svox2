@@ -15,8 +15,12 @@ def parse_poses_file(poses_file):
     for i in range(0, len(lines), 4):
         pose = []
         for j in range(4):
-            pose.append(list(map(float, lines[i + j].split())))
+            pose_line = list(map(float, lines[i + j].split()))
+            pose.append(pose_line)
 
+        pose = np.array(pose)
+        pose = np.array([[1, 0, 0, 0], [0, 0, 1, 0], [0, -1, 0, 0], [0, 0, 0, 1]]) @ pose
+        pose = pose.tolist()
         poses.append(pose)
 
     return poses
