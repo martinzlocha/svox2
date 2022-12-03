@@ -20,7 +20,7 @@
   "scene_scale": 0.2,
   "scene_x_translate": 0,
   "scene_y_translate": -1,
-  "scene_z_translate": 2,
+  "scene_z_translate": 2.4,
   "white_bkgd": false,
   "background_brightness": 0.5,
   "use_depth": true,
