@@ -78,6 +78,9 @@ def gen_morton(D, device='cpu', dtype=torch.long):
     mort = morton_code_3(X, Y, Z)
     return mort
 
+def to_point(reso, i):
+    return [(i // (reso[2] * reso[1])) % reso[0], (i // reso[2]) % reso[1] , i % reso[2]]
+
 
 # SH
 
