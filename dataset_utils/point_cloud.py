@@ -3,19 +3,13 @@ from functools import partial
 import json
 import os
 import liblzfse
-from typing import Dict, List, Optional, TypeVar
+from typing import Dict, List, Optional
 import numpy as np
 import torch
 import imageio
 import cv2
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor
-
-DEPTH_DIR = "depth"
-CONFIDENCE_DIR = "confidence"
-IMAGE_DIR = "images"
-ORIGINAL_SUFFIX = "_original"
-TRANSFORMS = ["train", "test"]
 
 @dataclass
 class Rays:
@@ -66,37 +60,20 @@ def load_confidence_file(fpath: str) -> torch.Tensor:
         confidence_img = np.frombuffer(decompressed_bytes, dtype=np.uint8)
     return torch.from_numpy(confidence_img)
 
-def _img_file_path_from_frame(frame: dict, potential_images_dir: str, dataset_dir: str) -> str:
-    img_path = os.path.splitext(os.path.basename(frame['file_path']))[0]
+def _img_file_path_from_frame(frame: dict, dataset_dir: str) -> str:
+    return os.path.join(dataset_dir, frame['file_path'])
 
-    extensions = ['.jpg', '.png', '']
-    parent_dirs = [potential_images_dir, dataset_dir, '']
+def _depth_file_path_from_frame(frame: dict, dataset_dir: str) -> str:
+    return os.path.join(dataset_dir, frame['depth_path'])
 
-    for extension in extensions:
-        for parent_dir in parent_dirs:
-            fpath = os.path.join(parent_dir, img_path + extension)
-            if os.path.exists(fpath):
-                return fpath
+def _confidence_file_path_from_frame(frame: dict, dataset_dir: str) -> str:
+    return os.path.join(dataset_dir, frame['confidence_path'])
 
-    raise FileNotFoundError(f'Could not find image file for frame {frame["frame_id"]}')
-
-def _depth_file_path_from_frame(frame: dict, depth_dir: str, dataset_dir: str) -> str:
-    if 'depth_path' in frame:
-        return os.path.join(dataset_dir, frame['depth_path'])
-
-    return os.path.join(depth_dir, f"{frame['image_id']:04d}.exr")
-
-def _confidence_file_path_from_frame(frame: dict, confidence_dir: str, dataset_dir: str) -> str:
-    if 'confidence_path' in frame:
-        return os.path.join(dataset_dir, frame['confidence_path'])
-
-    return os.path.join(confidence_dir, f"{frame['image_id']:04d}.conf")
-
-def _get_points_and_features(frame: Dict, dataset_path: str, images_dir: str, depths_dir: str, confidence_dir: str, camera_angle_x: float, clipping_distance: Optional[float] = None, translation: Optional[torch.Tensor]=None, scaling: Optional[float]=None):
-    img_path = _img_file_path_from_frame(frame, images_dir, dataset_path)
+def _get_points_and_features(frame: Dict, dataset_path: str, camera_angle_x: float, clipping_distance: Optional[float] = None, translation: Optional[torch.Tensor]=None, scaling: Optional[float]=None):
+    img_path = _img_file_path_from_frame(frame, dataset_path)
     img = imageio.imread(img_path)
 
-    depth_path = _depth_file_path_from_frame(frame, depths_dir, dataset_path)
+    depth_path = _depth_file_path_from_frame(frame, dataset_path)
     depth = load_depth_file(depth_path)
     depth_height, depth_width = depth.shape
     depth = depth.reshape(-1, 1)
@@ -123,8 +100,8 @@ def _get_points_and_features(frame: Dict, dataset_path: str, images_dir: str, de
 
     assert img.shape[0] == img_points.shape[0], f"img.shape: {img.shape}, img_points.shape: {img_points.shape}"
 
-    confidence_path = _confidence_file_path_from_frame(frame, confidence_dir, dataset_path)
-    if os.path.isfile(confidence_path):
+    if 'confidence_path' in frame:
+        confidence_path = _confidence_file_path_from_frame(frame, dataset_path)
         confidence = load_confidence_file(confidence_path)
         confidence = confidence.reshape(-1, 1)
 
@@ -145,9 +122,6 @@ class Pointcloud:
                           clipping_distance: Optional[float]=None,
                           translation: Optional[torch.Tensor]=None,
                           scaling: Optional[float]=None) -> 'Pointcloud':
-        depths_dir = os.path.join(dataset_path, DEPTH_DIR)
-        confidence_dir = os.path.join(dataset_path, CONFIDENCE_DIR)
-        images_dir = os.path.join(dataset_path, IMAGE_DIR)
 
         points_list: List[torch.Tensor] = []
         features_list: List[torch.Tensor] = []
@@ -161,16 +135,11 @@ class Pointcloud:
             camera_angle_x = transforms["camera_angle_x"]
 
             with ThreadPoolExecutor() as executor:
-                points_features = list(tqdm(executor.map(partial(_get_points_and_features, dataset_path=dataset_path, images_dir=images_dir, depths_dir=depths_dir, confidence_dir=confidence_dir, camera_angle_x=camera_angle_x, clipping_distance=clipping_distance, translation=translation, scaling=scaling), transforms["frames"]), total=len(transforms["frames"])))
+                points_features = list(tqdm(executor.map(partial(_get_points_and_features, dataset_path=dataset_path, camera_angle_x=camera_angle_x, clipping_distance=clipping_distance, translation=translation, scaling=scaling), transforms["frames"]), total=len(transforms["frames"])))
 
             points, features = zip(*points_features)
             points_list.extend(points)
             features_list.extend(features)
-
-            # for i, frame in enumerate(tqdm(transforms["frames"], desc=f"Loading {transforms_name} pointcloud")):
-            #     points, features = _get_points_and_features(frame, dataset_path, images_dir, depths_dir, camera_angle_x, clipping_distance)
-            #     points_list.append(points)
-            #     features_list.append(features)
 
 
         points = torch.cat(points_list, dim=0)
