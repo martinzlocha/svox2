@@ -1283,6 +1283,27 @@ class SparseGrid(nn.Module):
                 ), "reso must be an integer or indexable object of 3 ints"
 
             self.capacity: int = reduce(lambda x, y: x * y, reso)
+            curr_reso = self.links.shape
+            dtype = torch.float32
+            reso_facts = [0.5 * curr_reso[i] / reso[i] for i in range(3)]
+            X = torch.linspace(
+                reso_facts[0] - 0.5,
+                curr_reso[0] - reso_facts[0] - 0.5,
+                reso[0],
+                dtype=dtype,
+            )
+            Y = torch.linspace(
+                reso_facts[1] - 0.5,
+                curr_reso[1] - reso_facts[1] - 0.5,
+                reso[1],
+                dtype=dtype,
+            )
+            Z = torch.linspace(
+                reso_facts[2] - 0.5,
+                curr_reso[2] - reso_facts[2] - 0.5,
+                reso[2],
+                dtype=dtype,
+            )
 
             use_weight_thresh = cameras is not None
 
@@ -1290,11 +1311,8 @@ class SparseGrid(nn.Module):
             all_sample_vals_density = []
             print('Pass 1/2 (density)')
             for i in tqdm(range(0, self.capacity, batch_size)):
-                points = []
-                for j in range(i, min(i + batch_size, self.capacity)):
-                    points.append(utils.to_point(reso, j))
-                points = torch.tensor(points, dtype=torch.float32).to(device=device)
-
+                indices = torch.arange(i, min(i + batch_size, self.capacity))
+                points = utils.to_points(reso, [X, Y, Z], indices).to(device=device)
                 sample_vals_density, _ = self.sample(
                     points,
                     grid_coords=True,
@@ -1380,10 +1398,7 @@ class SparseGrid(nn.Module):
             indices = sample_vals_mask.nonzero(as_tuple=True)[0]
             all_sample_vals_sh = []
             for i in tqdm(range(0, len(indices), batch_size)):
-                points = []
-                for j in range(i, min(i + batch_size, len(indices))):
-                  points.append(utils.to_point(reso, indices[j].item()))
-                points = torch.tensor(points, dtype=torch.float32).to(device=device)
+                points = utils.to_points(reso, [X, Y, Z], indices[i:i + batch_size]).to(device=device)
                 _, sample_vals_sh = self.sample(
                     points,
                     grid_coords=True,
