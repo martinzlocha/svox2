@@ -1,6 +1,8 @@
 import torch
 from dataclasses import dataclass
 import os
+import numpy as np
+import liblzfse
 import cv2
 
 def load_depth_file(fpath: str) -> torch.Tensor:
@@ -10,6 +12,13 @@ def load_depth_file(fpath: str) -> torch.Tensor:
     depth = img[:,:,2]
 
     return torch.from_numpy(depth)
+
+def load_confidence_file(fpath: str) -> torch.Tensor:
+    with open(fpath, 'rb') as confidence_fh:
+        raw_bytes = confidence_fh.read()
+        decompressed_bytes = liblzfse.decompress(raw_bytes)
+        confidence_img = np.frombuffer(decompressed_bytes, dtype=np.uint8)
+    return torch.from_numpy(confidence_img)
 
 @dataclass
 class Rays:
@@ -44,22 +53,11 @@ def get_rays(transform: torch.Tensor, width: int, height: int, focal: float) -> 
     origins = transform[:3, 3].flatten().unsqueeze(0).expand(height * width, 3).contiguous()  # [H*W, 3]
     return Rays(origins=origins, dirs=dirs)
 
-def img_file_path_from_frame(frame: dict, potential_images_dir: str, dataset_dir: str) -> str:
-    img_path = frame['file_path']
+def img_file_path_from_frame(frame: dict, dataset_dir: str) -> str:
+    return os.path.join(dataset_dir, frame['file_path'])
 
-    extensions = ['.jpg', '.png', '']
-    parent_dirs = [potential_images_dir, dataset_dir, '']
+def depth_file_path_from_frame(frame: dict, dataset_dir: str) -> str:
+    return os.path.join(dataset_dir, frame['depth_path'])
 
-    for extension in extensions:
-        for parent_dir in parent_dirs:
-            fpath = os.path.join(parent_dir, img_path + extension)
-            if os.path.exists(fpath):
-                return fpath
-
-    raise FileNotFoundError(f'Could not find image file for frame {frame["frame_id"]}')
-
-def depth_file_path_from_frame(frame: dict, depth_dir: str, dataset_dir: str) -> str:
-    if 'depth_path' in frame:
-        return os.path.join(dataset_dir, frame['depth_path'])
-
-    return os.path.join(depth_dir, f"{frame['image_id']:04d}.exr")
+def confidence_file_path_from_frame(frame: dict, dataset_dir: str) -> str:
+    return os.path.join(dataset_dir, frame['confidence_path'])

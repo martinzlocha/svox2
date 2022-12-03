@@ -86,22 +86,27 @@ class RenderOptions:
 class Rays:
     origins: torch.Tensor
     dirs: torch.Tensor
+    depths: torch.Tensor
 
     def _to_cpp(self):
         """
         Generate object to pass to C++
         """
+        assert self.depths.dim() == 2
+        assert self.origins.size(dim=0) == self.depths.size(dim=0)
+
         spec = _C.RaysSpec()
         spec.origins = self.origins
         spec.dirs = self.dirs
+        spec.depths = self.depths
         return spec
 
     def __getitem__(self, key):
-        return Rays(self.origins[key], self.dirs[key])
+        return Rays(self.origins[key], self.dirs[key], self.depths[key])
 
     @property
     def is_cuda(self) -> bool:
-        return self.origins.is_cuda and self.dirs.is_cuda
+        return self.origins.is_cuda and self.dirs.is_cuda and self.depths.is_cuda
 
 
 @dataclass
@@ -182,7 +187,7 @@ class Camera:
                     dirs,
                     self.ndc_coeffs)
             dirs /= torch.norm(dirs, dim=-1, keepdim=True)
-        return Rays(origins, dirs)
+        return Rays(origins, dirs, torch.zeros(origins.size(dims=0), 1))
 
 
 # BEGIN Differentiable CUDA functions with custom gradient
@@ -1668,7 +1673,7 @@ class SparseGrid(nn.Module):
             radius=self.radius.tolist(),
             center=self.center.tolist(),
             device=device,
-            depth_limit=7
+            depth_limit=10
         )
 
         curr_reso = self.links.shape

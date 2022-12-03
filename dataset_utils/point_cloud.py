@@ -1,8 +1,9 @@
 from dataclasses import dataclass
-from functools import lru_cache, partial
+from functools import partial
 import json
 import os
-from typing import Dict, List, Optional, Tuple, TypeVar, cast
+import liblzfse
+from typing import Dict, List, Optional
 import numpy as np
 import torch
 import imageio
@@ -11,23 +12,14 @@ from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor
 import open3d as o3d
 import open3d.core as o3c
-from utils import get_rays, img_file_path_from_frame, depth_file_path_from_frame, load_depth_file
-
-DEPTH_DIR = "depth"
-IMAGE_DIR = "images"
-ORIGINAL_SUFFIX = "_original"
-TRANSFORMS = ["train", "test"]
+from utils import get_rays, img_file_path_from_frame, depth_file_path_from_frame, confidence_file_path_from_frame, load_depth_file, load_confidence_file
 
 
-def _get_points_and_features(frame: Dict, dataset_path: str, images_dir: str, depths_dir: str, camera_angle_x: float, clipping_distance: Optional[float] = None, translation: Optional[torch.Tensor]=None, scaling: Optional[float]=None):
-    img_name = frame["file_path"]
-    # img_path = os.path.join(images_dir, f"{img_name}.jpg")
-    img_path = img_file_path_from_frame(frame, images_dir, dataset_path)
+def _get_points_and_features(frame: Dict, dataset_path: str, camera_angle_x: float, clipping_distance: Optional[float] = None, translation: Optional[torch.Tensor]=None, scaling: Optional[float]=None):
+    img_path = img_file_path_from_frame(frame, dataset_path)
     img = imageio.imread(img_path)
-    height, width, _ = img.shape
 
-    # depth_path = os.path.join(depths_dir, f"{img_name}.exr")
-    depth_path = depth_file_path_from_frame(frame, depths_dir, dataset_path)
+    depth_path = depth_file_path_from_frame(frame, dataset_path)
     depth = load_depth_file(depth_path)
     depth_height, depth_width = depth.shape
     depth = depth.reshape(-1, 1)
@@ -48,14 +40,19 @@ def _get_points_and_features(frame: Dict, dataset_path: str, images_dir: str, de
     rays = get_rays(transformation_matrix, depth_width, depth_height, focal)
 
     img_points = rays.origins + rays.dirs * depth
-    # points_list.append(img_points)
 
     img = cv2.resize(img, (depth_width, depth_height), interpolation=cv2.INTER_CUBIC)
     img = torch.from_numpy(img).reshape(-1, 3)
 
     assert img.shape[0] == img_points.shape[0], f"img.shape: {img.shape}, img_points.shape: {img_points.shape}"
 
-    # features_list.append(img)
+    if 'confidence_path' in frame:
+        confidence_path = confidence_file_path_from_frame(frame, dataset_path)
+        confidence = load_confidence_file(confidence_path)
+        confidence = confidence.reshape(-1, 1)
+
+        img = img[confidence[:, 0] == 2, :]
+        img_points = img_points[confidence[:, 0] == 2, :]
 
     return img_points, img
 
@@ -226,9 +223,7 @@ class Pointcloud_DEPRECATED:
                           transforms_to_load: List[str],
                           clipping_distance: Optional[float]=None,
                           translation: Optional[torch.Tensor]=None,
-                          scaling: Optional[float]=None) -> 'Pointcloud_DEPRECATED':
-        depths_dir = os.path.join(dataset_path, DEPTH_DIR)
-        images_dir = os.path.join(dataset_path, IMAGE_DIR)
+                          scaling: Optional[float]=None) -> 'Pointcloud':
 
         points_list: List[torch.Tensor] = []
         features_list: List[torch.Tensor] = []
@@ -245,17 +240,12 @@ class Pointcloud_DEPRECATED:
             camera_angle_x = transforms["camera_angle_x"]
 
             with ThreadPoolExecutor() as executor:
-                points_features = list(tqdm(executor.map(partial(_get_points_and_features, dataset_path=dataset_path, images_dir=images_dir, depths_dir=depths_dir, camera_angle_x=camera_angle_x, clipping_distance=clipping_distance, translation=translation, scaling=scaling), transforms["frames"]), total=len(transforms["frames"])))
+                points_features = list(tqdm(executor.map(partial(_get_points_and_features, dataset_path=dataset_path, camera_angle_x=camera_angle_x, clipping_distance=clipping_distance, translation=translation, scaling=scaling), transforms["frames"]), total=len(transforms["frames"])))
 
             points, features = zip(*points_features)
             points_list.extend(points)
             features_list.extend(features)
             frame_ids.extend([frame["image_id"] for frame in transforms["frames"]])
-
-            # for i, frame in enumerate(tqdm(transforms["frames"], desc=f"Loading {transforms_name} pointcloud")):
-            #     points, features = _get_points_and_features(frame, dataset_path, images_dir, depths_dir, camera_angle_x, clipping_distance)
-            #     points_list.append(points)
-            #     features_list.append(features)
 
 
         points = torch.cat(points_list, dim=0)

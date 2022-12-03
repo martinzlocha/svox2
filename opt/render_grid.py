@@ -18,19 +18,37 @@ from torch import nn
 import imageio
 import cv2
 from tqdm import tqdm
+from dataset_utils import point_cloud
 
-def set_first_harmonic(grid: svox2.svox2.SparseGrid,
-                       idxs: torch.Tensor,
-                       target_color: torch.Tensor):
+def load_pointcloud(translation: torch.Tensor,
+                    scaling: float,
+                    dataset_path: str = '/root/svox2/data/livingroom/') -> point_cloud.Pointcloud:
+    return point_cloud.Pointcloud.from_dataset(dataset_path,
+                                               ['transforms_train.json'],
+                                               translation=translation,
+                                               scaling=scaling)
+
+def set_harmonics(grid: svox2.svox2.SparseGrid,
+                  idxs: torch.Tensor,
+                  target_color: torch.Tensor,
+                  mask: torch.Tensor,
+                  n_harmonics: int = 1):
     optimal_colors = torch.zeros_like(grid.sh_data, dtype=grid.sh_data.dtype).cuda()
     color_capacity = grid.sh_data[0].shape[-1]
-    optimal_colors[idxs] = torch.concat([target_color, torch.zeros(color_capacity - 3).cuda()])[None]
+    if n_harmonics * 3 > color_capacity:
+        raise ValueError(f'Trying to set too many harmonics! You can only set {color_capacity // 3}')
+    target_color_masked = target_color[mask]
+    target_color_masked = target_color_masked.repeat(1, n_harmonics)
+    padding = torch.zeros([target_color_masked.shape[0], color_capacity - n_harmonics * 3]).cuda()
+
+    optimal_colors[idxs] = torch.concat([target_color_masked, padding], axis=-1)
     grid.sh_data = nn.Parameter(optimal_colors)
 
 def set_grid_colors(grid: svox2.svox2.SparseGrid,
                     locations: torch.Tensor,
                     target_color: torch.Tensor,
-                    target_density: float = 1.):
+                    target_density: float = 1.,
+                    n_harmonics=1):
     """Sets grid location to target color and density"""
 
     # Shape: 3 x [n]
@@ -44,12 +62,13 @@ def set_grid_colors(grid: svox2.svox2.SparseGrid,
                 mask = links >= 0
                 idxs = links[mask].long()
                 optimal_density[idxs] = target_density
-                set_first_harmonic(grid, idxs, target_color)
+                set_harmonics(grid,
+                              idxs,
+                              target_color,
+                              mask,
+                              n_harmonics=n_harmonics)
     
     grid.density_data = nn.Parameter(optimal_density)
-
-
-
 
 
 parser = argparse.ArgumentParser()
@@ -196,26 +215,39 @@ if args.vert_shift != 0.0:
 
 grid = svox2.SparseGrid(reso=(100, 100, 100),
                         center=0.0,
-                        radius=50.0,
+                        radius=1.,
                         use_sphere_bound=False,
-                        basis_dim=4,
-                        use_z_order=False,
+                        basis_dim=1,
+                        use_z_order=True,
                         device=device,
                         mlp_posenc_size=0,
                         mlp_width=16,
                         background_nlayers=0,
                         background_reso=0)
+translation = torch.Tensor([1.2, 0, 1.4])
+scaling = 0.25
+point_cloud = load_pointcloud(translation=translation, scaling=scaling)
+point_cloud = point_cloud.get_pruned_pointcloud(10000000)
+points = point_cloud.points
+colors = point_cloud.features.cuda().float() / 255.
 
-locations = []
-for x in range(65, 75):
-    for y in range(45, 55):
-        for z in range(45, 55):
-            locations.append([x, y, z])
+# WARNING: Set colors to blue
+colors = torch.concat([torch.zeros([colors.shape[0], 2]),
+                       torch.ones([colors.shape[0], 1])], dim=-1).float().cuda()
+
+locations = grid.world2grid(points)
+locations.clamp_min_(0.0)
+for i in range(3):
+    locations[:, i].clamp_max_(grid.links.size(i) - 1)
+l = locations.to(torch.long)
+for i in range(3):
+    l[:, i].clamp_max_(grid.links.size(i) - 2)
 
 set_grid_colors(
     grid,
-    torch.Tensor(locations).long().cuda(),
-    torch.tensor([1., 0., 0.]).cuda(),
+    l.cuda(),
+    target_color=colors,
+    n_harmonics=1   
 )
 
 config_util.setup_render_opts(grid.opt, args)

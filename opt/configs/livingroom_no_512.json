@@ -20,7 +20,7 @@
     "background_brightness": 1.0,
     "tv_early_only": 0,
     "scale": 0.25,
-    "scene_scale": 0.3,
+    "scene_scale": 0.2,
     "scene_x_translate": 1.2,
     "scene_y_translate": 0,
     "scene_z_translate": 1.2

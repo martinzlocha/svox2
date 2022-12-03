@@ -13,21 +13,27 @@ from warnings import warn
 
 @dataclass
 class Rays:
-    origins: Union[torch.Tensor, List[torch.Tensor]]
-    dirs: Union[torch.Tensor, List[torch.Tensor]]
-    gt: Union[torch.Tensor, List[torch.Tensor]]
+    origins: torch.Tensor
+    dirs: torch.Tensor
+    gt: torch.Tensor
+    depths: torch.Tensor
 
     def to(self, *args, **kwargs):
+        assert self.depths.dim() == 2
+        assert self.origins.size(dim=0) == self.depths.size(dim=0)
+
         origins = self.origins.to(*args, **kwargs)
         dirs = self.dirs.to(*args, **kwargs)
         gt = self.gt.to(*args, **kwargs)
-        return Rays(origins, dirs, gt)
+        depths = self.depths.to(*args, **kwargs)
+        return Rays(origins, dirs, gt, depths)
 
     def __getitem__(self, key):
         origins = self.origins[key]
         dirs = self.dirs[key]
         gt = self.gt[key]
-        return Rays(origins, dirs, gt)
+        depths = self.depths[key]
+        return Rays(origins, dirs, gt, depths)
 
     def __len__(self):
         return self.origins.size(0)
@@ -311,7 +317,7 @@ def generate_rays(w, h, focal, camtoworlds, equirect=False):
     norms = np.linalg.norm(directions, axis=-1, keepdims=True)
     viewdirs = directions / norms
     rays = Rays(
-        origins=origins, directions=directions, viewdirs=viewdirs
+        origins=origins, directions=directions, viewdirs=viewdirs, depths=tensor.zeros(origins.size(dim=0), 1)
     )
     return rays
 
@@ -452,12 +458,13 @@ def pose_spherical(theta : float, phi : float, radius : float, offset : Optional
     Generate spherical rendering poses, from NeRF. Forgive the code horror
     :return: r (3,), t (3,)
     """
-    c2w = _trans_t(radius)
+    
+    c2w = _trans_t(-radius)
     c2w = _rot_phi(phi / 180.0 * np.pi) @ c2w
-    c2w = _rot_theta(theta / 180.0 * np.pi) @ c2w
+    c2w = _rot_theta((-theta + 180.0) / 180.0 * np.pi) @ c2w
     c2w = (
         np.array(
-            [[-1, 0, 0, 0], [0, 0, -1, 0], [0, 1, 0, 0], [0, 0, 0, 1]],
+            [[1, 0, 0, 0], [0, 0, 1, 0], [0, 1, 0, 0], [0, 0, 0, 1]],
             dtype=np.float32,
         )
         @ c2w

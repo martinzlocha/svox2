@@ -49,6 +49,7 @@ class DatasetBase:
         yy = (yy - self.intrins.cy) / self.intrins.fy
         zz = -torch.ones_like(xx)
         dirs = torch.stack((xx, yy, zz), dim=-1)  # OpenCV convention
+        dirs_norm = torch.norm(dirs, dim=-1)
         dirs /= torch.norm(dirs, dim=-1, keepdim=True)
         dirs = dirs.reshape(1, -1, 3, 1)
         del xx, yy, zz
@@ -68,14 +69,21 @@ class DatasetBase:
             dirs = dirs.view(-1, 3)
             gt = gt.reshape(-1, 3)
 
-        # adjust origins based on the depth
-        if hasattr(self, "depths"):
-            depths = self.depths.reshape(-1, 1)
-            avg_depth = torch.mean(depths)
-            print("shifting origins. avg depth = ", avg_depth)
-            origins = origins + dirs * (depths - 0.2)
+        print(f"Avg depth = {torch.mean(self.depths)}")
 
-        self.rays_init = Rays(origins=origins, dirs=dirs, gt=gt)
+        depths = self.depths
+
+        if hasattr(self, 'confidences'):
+            print(f"Confidence count = {torch.bincount(self.confidences.reshape(-1))}")
+            depths[self.confidences != 2] = 0
+
+        depths = self.depths / dirs_norm[None, ...]
+        depths = depths.reshape(-1, 1)
+        del dirs_norm
+        assert origins.size(dim=0) == depths.size(dim=0)
+        assert depths.dim() == 2
+
+        self.rays_init = Rays(origins=origins, dirs=dirs, gt=gt, depths=depths)
         self.rays = self.rays_init
 
     def get_image_size(self, i : int):

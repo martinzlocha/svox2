@@ -21,15 +21,15 @@ import cv2
 from util.dataset import datasets
 from util.util import Timing, get_expon_lr_func, generate_dirs_equirect, viridis_cmap, compute_ssim
 from util import config_util
+from dataset_utils import point_cloud
 
 from warnings import warn
 from datetime import datetime
 from torch.utils.tensorboard import SummaryWriter
 
-WANDB_ON=False
+WANDB_ON=True
 
 from tqdm import tqdm
-from typing import NamedTuple, Optional, Union
 
 
 def log_image(image_name, image, global_step):
@@ -196,7 +196,8 @@ group.add_argument('--tune_mode', action='store_true', default=False,
                    help='hypertuning mode (do not save, for speed)')
 group.add_argument('--tune_nosave', action='store_true', default=False,
                    help='do not save any checkpoint even at the end')
-
+group.add_argument('--init_from_point_cloud', action='store_true', default=True,
+                   help='Initialize voxels from point cloud')
 
 
 group = parser.add_argument_group("losses")
@@ -274,6 +275,14 @@ summary_writer = SummaryWriter(args.train_dir)
 
 reso_list = json.loads(args.reso)
 reso_id = 0
+
+def load_pointcloud(dataset_path: str = '/root/svox2/data/livingroom/') -> point_cloud.Pointcloud:
+    translation = torch.Tensor([args.scene_x_translate, args.scene_y_translate, args.scene_z_translate])
+    scaling = args.scene_scale
+    return point_cloud.Pointcloud.from_dataset(dataset_path,
+                                               ['transforms_train.json'],
+                                               translation=translation,
+                                               scaling=scaling)
 
 with open(path.join(args.train_dir, 'args.json'), 'w') as f:
     json.dump(args_as_dict, f, indent=2)
@@ -380,10 +389,82 @@ lr_basis_factor = 1.0
 
 last_upsamp_step = args.init_iters
 
+def set_grid_density(grid: svox2.svox2.SparseGrid,
+                    points: torch.Tensor,
+                    target_density: float = 10.):
+    """Sets grid location to target color and density"""
+
+    # Shape: 3 x [n]
+    points = grid.world2grid(points)
+    points.clamp_min_(0.0)
+    for i in range(3):
+        points[:, i].clamp_max_(grid.links.size(i) - 1)
+    l = points.to(torch.long)
+    for i in range(3):
+        l[:, i].clamp_max_(grid.links.size(i) - 1)
+
+    lx, ly, lz = l.unbind(-1)
+    optimal_density = torch.zeros_like(grid.density_data)
+    links = grid.links[lx, ly, lz]
+    mask = links >= 0
+    links = links[mask].long()
+    link_bincount = torch.bincount(links)
+    link_bincount[link_bincount < 3] = 0
+    keep_links = torch.count_nonzero(link_bincount)
+    print(f"Keeping {keep_links} links")
+    idxs = torch.argsort(link_bincount, descending=True)[:keep_links]
+    optimal_density[idxs] = target_density
+    
+    grid.density_data = torch.nn.Parameter(optimal_density)
+
+def get_links(points):
+    points = grid.world2grid(points)
+    points.clamp_min_(0.0)
+    for i in range(3):
+        points[:, i].clamp_max_(grid.links.size(i) - 1)
+    l = points.to(torch.long)
+    for i in range(3):
+        l[:, i].clamp_max_(grid.links.size(i) - 2)
+    wb = points - l
+    wa = 1.0 - wb
+    lx, ly, lz = l.unbind(-1)
+    links000 = grid.links[lx, ly, lz]
+    links001 = grid.links[lx, ly, lz + 1]
+    links010 = grid.links[lx, ly + 1, lz]
+    links011 = grid.links[lx, ly + 1, lz + 1]
+    links100 = grid.links[lx + 1, ly, lz]
+    links101 = grid.links[lx + 1, ly, lz + 1]
+    links110 = grid.links[lx + 1, ly + 1, lz]
+    links111 = grid.links[lx + 1, ly + 1, lz + 1]
+    
+    return (links000, links001, links010, links011, links100, links101, links110, links111), (wa, wb)
+
+if args.init_from_point_cloud:
+    pc_point_count = 100000000
+    pc_orig = load_pointcloud(args.data_dir)
+    pc = pc_orig.get_pruned_pointcloud(pc_point_count)
+    pc_keep_points = pc.points.cuda()
+    print(f"Keep points: {pc_keep_points.size()}")
+    set_grid_density(grid, pc_keep_points)
+    # grid.save_voxels_to_dict(ckpt_path)
+
+    grid.resample(reso=reso_list[0],
+                sigma_thresh=args.density_thresh,
+                weight_thresh=args.weight_thresh / reso_list[0][2],
+                dilate=1,
+                cameras=resample_cameras if args.thresh_type == 'weight' else None,
+                max_elements=args.max_grid_elements)
+
+if WANDB_ON:
+  wandb.log({
+      "voxels": torch.count_nonzero(grid.density_data),
+  }, step=0)
+
 if args.enable_random:
     warn("Randomness is enabled for training (normal for LLFF & scenes with background)")
 
 epoch_id = -1
+
 while True:
     dset.shuffle_rays()
     epoch_id += 1
@@ -489,20 +570,21 @@ while True:
         # NOTE: we do an eval sanity check, if not in tune_mode
         eval_step()
         gc.collect()
-
+    
     def train_step():
         print('Train step')
         pbar = tqdm(enumerate(range(0, epoch_size, args.batch_size)), total=batches_per_epoch)
         stats = {"mse" : 0.0, "psnr" : 0.0, "invsqr_mse" : 0.0}
+
         for iter_id, batch_begin in pbar:
             gstep_id = iter_id + gstep_id_base
             if args.lr_fg_begin_step > 0 and gstep_id == args.lr_fg_begin_step:
                 grid.density_data.data[:] = args.init_sigma
-            lr_sigma = lr_sigma_func(gstep_id) * lr_sigma_factor
-            lr_sh = lr_sh_func(gstep_id) * lr_sh_factor
-            lr_basis = lr_basis_func(gstep_id - args.lr_basis_begin_step) * lr_basis_factor
-            lr_sigma_bg = lr_sigma_bg_func(gstep_id - args.lr_basis_begin_step) * lr_basis_factor
-            lr_color_bg = lr_color_bg_func(gstep_id - args.lr_basis_begin_step) * lr_basis_factor
+            lr_sigma = lr_sigma_func(gstep_id - last_upsamp_step) * lr_sigma_factor
+            lr_sh = lr_sh_func(gstep_id - last_upsamp_step) * lr_sh_factor
+            lr_basis = lr_basis_func(gstep_id - last_upsamp_step - args.lr_basis_begin_step) * lr_basis_factor
+            lr_sigma_bg = lr_sigma_bg_func(gstep_id - last_upsamp_step - args.lr_basis_begin_step) * lr_basis_factor
+            lr_color_bg = lr_color_bg_func(gstep_id - last_upsamp_step - args.lr_basis_begin_step) * lr_basis_factor
             if not args.lr_decay:
                 lr_sigma = args.lr_sigma * lr_sigma_factor
                 lr_sh = args.lr_sh * lr_sh_factor
@@ -511,13 +593,24 @@ while True:
             batch_end = min(batch_begin + args.batch_size, epoch_size)
             batch_origins = dset.rays.origins[batch_begin: batch_end]
             batch_dirs = dset.rays.dirs[batch_begin: batch_end]
+            batch_depths = dset.rays.depths[batch_begin: batch_end]
             rgb_gt = dset.rays.gt[batch_begin: batch_end]
-            rays = svox2.Rays(batch_origins, batch_dirs)
+            rays = svox2.Rays(batch_origins, batch_dirs, batch_depths)
+
+            lambda_sparsity = args.lambda_sparsity
+            if gstep_id >= 64000:
+              lambda_sparsity = args.lambda_sparsity / 10
+            if gstep_id >= 76800:
+              lambda_sparsity = args.lambda_sparsity / 100
+            if gstep_id >= 89600:
+              lambda_sparsity = args.lambda_sparsity / 1000
+            if gstep_id % 12800 == 0:
+              print(f'Lambda sparsity: {lambda_sparsity}')
 
             #  with Timing("volrend_fused"):
             rgb_pred = grid.volume_render_fused(rays, rgb_gt,
                     beta_loss=args.lambda_beta,
-                    sparsity_loss=args.lambda_sparsity,
+                    sparsity_loss=lambda_sparsity,
                     randomize=args.enable_random)
 
             #  with Timing("loss_comp"):
@@ -567,7 +660,7 @@ while True:
                         "lr_sh": lr_sh,
                         "lr_sigma": lr_sigma,
                         "lr_basis": lr_basis,
-
+                        "voxels": torch.count_nonzero(grid.density_data),
                     }, step=gstep_id)
 
             #  # For outputting the % sparsity of the gradient
@@ -630,7 +723,6 @@ while True:
                 elif grid.basis_type == svox2.BASIS_TYPE_MLP:
                     optim_basis_mlp.step()
                     optim_basis_mlp.zero_grad()
-
     train_step()
     gc.collect()
     gstep_id_base += batches_per_epoch
@@ -641,37 +733,38 @@ while True:
             factor, args.save_every) == 0 and not args.tune_mode):
         print('Saving', ckpt_path)
         grid.save(ckpt_path)
-        grid.save_voxels_to_dict(ckpt_path)
+        # grid.save_voxels_to_dict(ckpt_path)
 
-    if (gstep_id_base - last_upsamp_step) >= args.upsamp_every:
+    if (gstep_id_base - last_upsamp_step) >= args.upsamp_every and reso_id < len(reso_list) - 1:
         last_upsamp_step = gstep_id_base
-        if reso_id < len(reso_list) - 1:
-            print('* Upsampling from', reso_list[reso_id], 'to', reso_list[reso_id + 1])
-            if args.tv_early_only > 0:
-                print('turning off TV regularization')
-                args.lambda_tv = 0.0
-                args.lambda_tv_sh = 0.0
-            elif args.tv_decay != 1.0:
-                args.lambda_tv *= args.tv_decay
-                args.lambda_tv_sh *= args.tv_decay
+        print('* Upsampling from', reso_list[reso_id], 'to', reso_list[reso_id + 1])
+        if args.tv_early_only > 0:
+            print('turning off TV regularization')
+            args.lambda_tv = 0.0
+            args.lambda_tv_sh = 0.0
+        elif args.tv_decay != 1.0:
+            args.lambda_tv *= args.tv_decay
+            args.lambda_tv_sh *= args.tv_decay
 
-            reso_id += 1
-            use_sparsify = True
-            z_reso = reso_list[reso_id] if isinstance(reso_list[reso_id], int) else reso_list[reso_id][2]
-            grid.resample(reso=reso_list[reso_id],
-                    sigma_thresh=args.density_thresh,
-                    weight_thresh=args.weight_thresh / z_reso if use_sparsify else 0.0,
-                    dilate=2, #use_sparsify,
-                    cameras=resample_cameras if args.thresh_type == 'weight' else None,
-                    max_elements=args.max_grid_elements)
+        reso_id += 1
+        use_sparsify = True
+        z_reso = reso_list[reso_id] if isinstance(reso_list[reso_id], int) else reso_list[reso_id][2]
+        grid.resample(reso=reso_list[reso_id],
+                sigma_thresh=args.density_thresh,
+                weight_thresh=args.weight_thresh / z_reso if use_sparsify else 0.0,
+                dilate=2, #use_sparsify,
+                cameras=resample_cameras if args.thresh_type == 'weight' else None,
+                max_elements=args.max_grid_elements)
+        #optimal_density = get_links(pc_points)
+        #neg_optimal_density = get_links(negative_points)
 
-            if grid.use_background and reso_id <= 1:
-                grid.sparsify_background(args.background_density_thresh)
+        if grid.use_background and reso_id <= 1:
+            grid.sparsify_background(args.background_density_thresh)
 
-            if args.upsample_density_add:
-                grid.density_data.data[:] += args.upsample_density_add
+        if args.upsample_density_add:
+            grid.density_data.data[:] += args.upsample_density_add
 
-        if factor > 1 and reso_id < len(reso_list) - 1:
+        if factor > 1:
             print('* Using higher resolution images due to large grid; new factor', factor)
             factor //= 2
             dset.gen_rays(factor=factor)
@@ -686,7 +779,7 @@ while True:
         timings_file.write(f"{secs / 60}\n")
         if not args.tune_nosave:
             grid.save(ckpt_path)
-            grid.save_voxels_to_dict(ckpt_path)
+            # grid.save_voxels_to_dict(ckpt_path)
         break
 
 
@@ -759,9 +852,9 @@ if WANDB_ON:
 
         vid = np.transpose(np.array(frames), (0, 3, 1, 2))
 
-        vid_path = os.path.join("/root/videos/", wandb.run.name + ".mp4")
+        vid_path = os.path.join(args.train_dir, wandb.run.name + ".mp4")
         print(f"saving the video {vid_path}")
-        imageio.mimwrite(vid_path, frames, fps=24, macro_block_size=8)
+        imageio.mimwrite(vid_path, frames, fps=6, macro_block_size=8)
 
         wandb.log({
             'final/psnr': avg_psnr,
