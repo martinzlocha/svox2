@@ -368,7 +368,7 @@ print('Render options', grid.opt)
 gstep_id_base = 0
 
 resample_cameras = [
-        svox2.Camera(c2w.to(device=device),
+        svox2.Camera(c2w,
                      dset.intrins.get('fx', i),
                      dset.intrins.get('fy', i),
                      dset.intrins.get('cx', i),
@@ -488,8 +488,8 @@ while True:
 
             n_images_gen = 0
             for i, img_id in tqdm(enumerate(img_ids), total=len(img_ids)):
-                c2w = dset_test.c2w[img_id].to(device=device)
-                cam = svox2.Camera(c2w,
+                c2w = dset_test.c2w[img_id]
+                cam = svox2.Camera(c2w.to(device=device),
                                    dset_test.intrins.get('fx', img_id),
                                    dset_test.intrins.get('fy', img_id),
                                    dset_test.intrins.get('cx', img_id),
@@ -794,7 +794,7 @@ if WANDB_ON:
         avg_ssim = 0.0
         avg_lpips = 0.0
         n_images_gen = 0
-        c2ws = dset.c2w.to(device=device)
+        c2ws = dset.c2w
 
         frames = []
         for img_id in tqdm(range(0, n_images, img_eval_interval)):
@@ -803,7 +803,7 @@ if WANDB_ON:
             w = dset_w
             h = dset_h
 
-            cam = svox2.Camera(c2ws[img_id],
+            cam = svox2.Camera(c2ws[img_id].to(device=device),
                             dset.intrins.get('fx', img_id),
                             dset.intrins.get('fy', img_id),
                             dset.intrins.get('cx', img_id) + (w - dset_w) * 0.5,
