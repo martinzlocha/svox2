@@ -1288,7 +1288,6 @@ class SparseGrid(nn.Module):
             self.capacity: int = reduce(lambda x, y: x * y, reso)
             curr_reso = self.links.shape
             dtype = torch.float32
-            del self.links
 
             print("==== 1 ====")
             utils.garbage_collect_and_print_usage(only_cuda=True)
