@@ -583,10 +583,10 @@ while True:
                 lr_basis = args.lr_basis * lr_basis_factor
 
             batch_end = min(batch_begin + args.batch_size, epoch_size)
-            batch_origins = dset.rays.origins[batch_begin: batch_end].to(device=device)
-            batch_dirs = dset.rays.dirs[batch_begin: batch_end].to(device=device)
-            batch_depths = dset.rays.depths[batch_begin: batch_end].to(device=device)
-            rgb_gt = dset.rays.gt[batch_begin: batch_end].to(device=device)
+            batch_origins = dset.rays.origins[batch_begin: batch_end].to(device=device, dtype=torch.float32)
+            batch_dirs = dset.rays.dirs[batch_begin: batch_end].to(device=device, dtype=torch.float32)
+            batch_depths = dset.rays.depths[batch_begin: batch_end].to(device=device, dtype=torch.float32)
+            rgb_gt = dset.rays.gt[batch_begin: batch_end].to(device=device, dtype=torch.float32)
             rays = svox2.Rays(batch_origins, batch_dirs, batch_depths)
 
             lambda_sparsity = args.lambda_sparsity
@@ -759,12 +759,6 @@ while True:
 
         if args.upsample_density_add:
             grid.density_data.data[:] += args.upsample_density_add
-
-        if factor > 1:
-            print('* Using higher resolution images due to large grid; new factor', factor)
-            factor //= 2
-            dset.gen_rays(factor=factor)
-            dset.shuffle_rays()
 
         print('After resample')
         garbage_collect_and_print_usage()

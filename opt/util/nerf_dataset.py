@@ -112,6 +112,7 @@ class NeRFDataset(DatasetBase):
             0.5 * all_gt[0].shape[1] / np.tan(0.5 * j["camera_angle_x"])
         )
         self.c2w = torch.stack(all_c2w)
+        del all_c2w
 
         self.c2w[:, :3, 3] += torch.tensor([scene_x_translate, scene_y_translate, scene_z_translate])
         self.c2w[:, :3, 3] *= scene_scale
@@ -121,6 +122,8 @@ class NeRFDataset(DatasetBase):
         print(f'Scene bounds Z: {torch.min(self.c2w[:, 2, 3])} - {torch.max(self.c2w[:, 2, 3])}')
 
         self.gt = (torch.stack(all_gt) / 255.0).to(dtype=torch.float16)
+        del all_gt
+
         if self.gt.size(-1) == 4:
             if white_bkgd:
                 # Apply alpha channel
@@ -152,10 +155,10 @@ class NeRFDataset(DatasetBase):
         if use_depth and split == 'train':
             depth_paths = map(lambda frame: os.path.join(root, frame["depth_path"]), j["frames"])
             with concurrent.futures.ThreadPoolExecutor() as executor:
-                depths = list(tqdm(executor.map(partial(load_depth_file, width=self.w_full, height=self.h_full), depth_paths), total=len(j["frames"])))
+                self.depths = list(tqdm(executor.map(partial(load_depth_file, width=self.w_full, height=self.h_full), depth_paths), total=len(j["frames"])))
 
-            depths = torch.stack(depths)
-            self.depths = (depths * scene_scale).to(dtype=torch.float32)
+            self.depths = torch.stack(self.depths)
+            self.depths = (self.depths * scene_scale).to(dtype=torch.float32)
 
             if 'confidence_path' in j["frames"][0]:
                 confidence_paths = map(lambda frame: os.path.join(root, frame["confidence_path"]), j["frames"])
@@ -166,7 +169,7 @@ class NeRFDataset(DatasetBase):
         self.split = split
         self.scene_scale = scene_scale
         if self.split == "train":
-            self.gen_rays(factor=factor)
+            self.gen_rays()
         else:
             # Rays are not needed for testing
             self.h, self.w = self.h_full, self.w_full

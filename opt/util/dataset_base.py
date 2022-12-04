@@ -29,7 +29,6 @@ class DatasetBase:
         Shuffle all rays
         """
         if self.split == "train":
-            del self.rays
             self.rays = select_or_shuffle_rays(self.rays, self.permutation,
                                                self.epoch_size, self.device)
 
@@ -54,14 +53,6 @@ class DatasetBase:
         dirs = dirs.reshape(1, -1, 3, 1)
         del xx, yy, zz
         dirs = (self.c2w[:, None, :3, :3] @ dirs)[..., 0]
-
-        if factor != 1:
-            self.gt = F.interpolate(
-                self.gt.permute([0, 3, 1, 2]), size=(self.h, self.w), mode="area"
-            ).permute([0, 2, 3, 1])
-            self.gt = self.gt.reshape(self.n_images, -1, 3)
-        else:
-            self.gt = self.gt.reshape(self.n_images, -1, 3)
 
         origins = self.c2w[:, None, :3, 3].expand(-1, self.h * self.w, -1).contiguous()
         if self.split == "train":
