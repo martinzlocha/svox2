@@ -308,7 +308,7 @@ dset_test = datasets[args.dataset_type](
         args.data_dir, split="test", device="cpu", **config_util.build_data_options(args))
 
 print('After dataset load')
-garbage_collect_and_print_usage(only_cuda=True)
+garbage_collect_and_print_usage()
 
 global_start_time = datetime.now()
 
@@ -327,7 +327,7 @@ grid = svox2.SparseGrid(reso=reso_list[reso_id],
                         background_reso=args.background_reso)
 
 print('After grid creation')
-garbage_collect_and_print_usage(only_cuda=True)
+garbage_collect_and_print_usage()
 
 # DC -> gray; mind the SH scaling!
 grid.sh_data.data[:] = 0.0
@@ -444,7 +444,7 @@ if args.init_from_point_cloud:
                 max_elements=args.max_grid_elements)
 
     print('After point cloud init and resample')
-    garbage_collect_and_print_usage(only_cuda=True)
+    garbage_collect_and_print_usage()
 
 if WANDB_ON:
   wandb.log({
@@ -767,7 +767,7 @@ while True:
             dset.shuffle_rays()
 
         print('After resample')
-        garbage_collect_and_print_usage(only_cuda=True)
+        garbage_collect_and_print_usage()
 
     if gstep_id_base >= args.n_iters:
         print('* Final eval and save')
