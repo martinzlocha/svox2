@@ -1325,7 +1325,7 @@ class SparseGrid(nn.Module):
                     grid_coords=True,
                     want_colors=False
                 )
-                sample_vals_density = sample_vaxwls_density
+                sample_vals_density = sample_vals_density
                 all_sample_vals_density.append(sample_vals_density)
             self.density_data.grad = None
             self.sh_data.grad = None
