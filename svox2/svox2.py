@@ -1285,12 +1285,14 @@ class SparseGrid(nn.Module):
                     len(reso) == 3
                 ), "reso must be an integer or indexable object of 3 ints"
 
-            print("==== 1 ====")
-            utils.garbage_collect_and_print_usage(only_cuda=True)
-
             self.capacity: int = reduce(lambda x, y: x * y, reso)
             curr_reso = self.links.shape
             dtype = torch.float32
+            del self.links
+
+            print("==== 1 ====")
+            utils.garbage_collect_and_print_usage(only_cuda=True)
+            
             reso_facts = [0.5 * curr_reso[i] / reso[i] for i in range(3)]
             X = torch.linspace(
                 reso_facts[0] - 0.5,
@@ -1405,8 +1407,8 @@ class SparseGrid(nn.Module):
             if dilate:
                 for i in range(int(dilate)):
                     sample_vals_mask = _C.dilate(sample_vals_mask)
-            sample_vals_mask = sample_vals_mask.view(-1)
-            sample_vals_density = sample_vals_density.view(-1)
+            sample_vals_mask = sample_vals_mask.view(-1).to(device='cpu')
+            sample_vals_density = sample_vals_density.view(-1).to(device='cpu')
             sample_vals_density = sample_vals_density[sample_vals_mask]
             cnz = torch.count_nonzero(sample_vals_mask).item()
 
@@ -1428,6 +1430,7 @@ class SparseGrid(nn.Module):
             del indices
 
             sample_vals_sh = torch.cat(all_sample_vals_sh, dim=0) if len(all_sample_vals_sh) else torch.empty_like(self.sh_data[:0])
+            sample_vals_sh = sample_vals_sh.to(device='cpu')
             del self.density_data
             del self.sh_data
             del self.links
