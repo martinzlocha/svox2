@@ -1252,7 +1252,6 @@ class SparseGrid(nn.Module):
         weight_thresh: float = 0.01,
         dilate: int = 2,
         cameras: Optional[List[Camera]] = None,
-        use_z_order: bool=False,
         accelerate: bool=True,
         weight_render_stop_thresh: float = 0.2, # SHOOT, forgot to turn this off for main exps..
         max_elements:int=0
@@ -1265,7 +1264,6 @@ class SparseGrid(nn.Module):
         :param dilate: int, if true applies dilation of size <dilate> to the 3D mask for nodes to keep in the grid
                              (keep neighbors in all 28 directions, including diagonals, of the desired nodes)
         :param cameras: Optional[List[Camera]], optional list of cameras in OpenCV convention (if given, uses weight thresholding)
-        :param use_z_order: bool, if true, stores the data initially in a Z-order curve if possible
         :param accelerate: bool, if true (default), calls grid.accelerate() after resampling
                            to build distance transform table (only if on CUDA)
         :param weight_render_stop_thresh: float, stopping threshold for grid weight render in [0, 1];
@@ -1283,10 +1281,6 @@ class SparseGrid(nn.Module):
                 assert (
                     len(reso) == 3
                 ), "reso must be an integer or indexable object of 3 ints"
-
-            if use_z_order and not (reso[0] == reso[1] and reso[0] == reso[2] and utils.is_pow2(reso[0])):
-                print("Morton code requires a cube grid of power-of-2 size, ignoring...")
-                use_z_order = False
 
             self.capacity: int = reduce(lambda x, y: x * y, reso)
             curr_reso = self.links.shape
@@ -1310,22 +1304,17 @@ class SparseGrid(nn.Module):
                 reso[2],
                 dtype=dtype,
             )
-            X, Y, Z = torch.meshgrid(X, Y, Z)
-            points = torch.stack((X, Y, Z), dim=-1).view(-1, 3)
-
-            if use_z_order:
-                morton = utils.gen_morton(reso[0], dtype=torch.long).view(-1)
-                points[morton] = points.clone()
-            points = points.to(device=device)
 
             use_weight_thresh = cameras is not None
 
             batch_size = 720720
             all_sample_vals_density = []
             print('Pass 1/2 (density)')
-            for i in tqdm(range(0, len(points), batch_size)):
+            for i in tqdm(range(0, self.capacity, batch_size)):
+                indices = torch.arange(i, min(i + batch_size, self.capacity))
+                points = utils.to_points(reso, [X, Y, Z], indices).to(device=device)
                 sample_vals_density, _ = self.sample(
-                    points[i : i + batch_size],
+                    points,
                     grid_coords=True,
                     want_colors=False
                 )
@@ -1405,12 +1394,13 @@ class SparseGrid(nn.Module):
             cnz = torch.count_nonzero(sample_vals_mask).item()
 
             # Now we can get the colors for the sparse points
-            points = points[sample_vals_mask]
             print('Pass 2/2 (color), eval', cnz, 'sparse pts')
+            indices = sample_vals_mask.nonzero(as_tuple=True)[0]
             all_sample_vals_sh = []
-            for i in tqdm(range(0, len(points), batch_size)):
+            for i in tqdm(range(0, len(indices), batch_size)):
+                points = utils.to_points(reso, [X, Y, Z], indices[i:i + batch_size]).to(device=device)
                 _, sample_vals_sh = self.sample(
-                    points[i : i + batch_size],
+                    points,
                     grid_coords=True,
                     want_colors=True
                 )
@@ -1421,19 +1411,10 @@ class SparseGrid(nn.Module):
             del self.sh_data
             del all_sample_vals_sh
 
-            if use_z_order:
-                inv_morton = torch.empty_like(morton)
-                inv_morton[morton] = torch.arange(morton.size(0), dtype=morton.dtype)
-                inv_idx = inv_morton[sample_vals_mask]
-                init_links = torch.full(
-                    (sample_vals_mask.size(0),), fill_value=-1, dtype=torch.int32
-                )
-                init_links[inv_idx] = torch.arange(inv_idx.size(0), dtype=torch.int32)
-            else:
-                init_links = (
-                    torch.cumsum(sample_vals_mask.to(torch.int32), dim=-1).int() - 1
-                )
-                init_links[~sample_vals_mask] = -1
+            init_links = (
+                torch.cumsum(sample_vals_mask.to(torch.int32), dim=-1).int() - 1
+            )
+            init_links[~sample_vals_mask] = -1
 
             self.capacity = cnz
             print(" New cap:", self.capacity)

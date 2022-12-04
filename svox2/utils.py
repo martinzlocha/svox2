@@ -78,6 +78,17 @@ def gen_morton(D, device='cpu', dtype=torch.long):
     mort = morton_code_3(X, Y, Z)
     return mort
 
+def to_points(reso, points, ids):
+    x_ids = ((ids // (reso[2] * reso[1])) % reso[0]).long()
+    y_ids = ((ids // reso[2]) % reso[1]).long()
+    z_ids = (ids % reso[2]).long()
+    return torch.stack([
+            points[0][x_ids],
+            points[1][y_ids],
+            points[2][z_ids]
+        ],
+        dim=-1)
+
 
 # SH
 

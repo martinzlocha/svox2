@@ -457,7 +457,8 @@ if args.init_from_point_cloud:
 
 if WANDB_ON:
   wandb.log({
-      "voxels": torch.count_nonzero(grid.density_data),
+      "voxels": torch.count_nonzero(grid.density_data > args.density_thresh),
+      "total_voxels": grid.density_data.size(dim=0)
   }, step=0)
 
 if args.enable_random:
@@ -660,7 +661,8 @@ while True:
                         "lr_sh": lr_sh,
                         "lr_sigma": lr_sigma,
                         "lr_basis": lr_basis,
-                        "voxels": torch.count_nonzero(grid.density_data),
+                        "voxels": torch.count_nonzero(grid.density_data > args.density_thresh),
+                        "total_voxels": grid.density_data.size(dim=0)
                     }, step=gstep_id)
 
             #  # For outputting the % sparsity of the gradient
