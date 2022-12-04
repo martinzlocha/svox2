@@ -420,30 +420,30 @@ class SparseGrid(nn.Module):
 
         n3: int = reduce(lambda x, y: x * y, reso)
         if use_z_order:
-            init_links = utils.gen_morton(reso[0], device=device, dtype=torch.int32).flatten()
+            init_links = utils.gen_morton(reso[0], device='cpu', dtype=torch.int32).flatten()
         else:
-            init_links = torch.arange(n3, device=device, dtype=torch.int32)
+            init_links = torch.arange(n3, device='cpu', dtype=torch.int32)
 
         if use_sphere_bound:
-            X = torch.arange(reso[0], dtype=torch.float32, device=device) - 0.5
-            Y = torch.arange(reso[1], dtype=torch.float32, device=device) - 0.5
-            Z = torch.arange(reso[2], dtype=torch.float32, device=device) - 0.5
+            X = torch.arange(reso[0], dtype=torch.float32, device='cpu') - 0.5
+            Y = torch.arange(reso[1], dtype=torch.float32, device='cpu') - 0.5
+            Z = torch.arange(reso[2], dtype=torch.float32, device='cpu') - 0.5
             X, Y, Z = torch.meshgrid(X, Y, Z)
             points = torch.stack((X, Y, Z), dim=-1).view(-1, 3)
-            gsz = torch.tensor(reso)
+            gsz = torch.tensor(reso, device='cpu')
             roffset = 1.0 / gsz - 1.0
             rscaling = 2.0 / gsz
             points = torch.addcmul(
-                roffset.to(device=points.device),
+                roffset.to(device='cpu'),
                 points,
-                rscaling.to(device=points.device),
+                rscaling.to(device='cpu'),
             )
 
             norms = points.norm(dim=-1)
             mask = norms <= 1.0 + (3 ** 0.5) / gsz.max()
             self.capacity: int = mask.sum()
 
-            data_mask = torch.zeros(n3, dtype=torch.int32, device=device)
+            data_mask = torch.zeros(n3, dtype=torch.int32, device='cpu')
             idxs = init_links[mask].long()
             data_mask[idxs] = 1
             data_mask = torch.cumsum(data_mask, dim=0) - 1
@@ -465,6 +465,7 @@ class SparseGrid(nn.Module):
         )
 
         if self.basis_type == BASIS_TYPE_3D_TEXTURE:
+            print('Setting up 3D texture')
             # Unit sphere embedded in a cube
             self.basis_data = nn.Parameter(
                 torch.zeros(
@@ -473,6 +474,7 @@ class SparseGrid(nn.Module):
                 )
             )
         elif self.basis_type == BASIS_TYPE_MLP:
+            print('Setting up MLP')
             D_rgb = mlp_width
             dir_in_dims = 3 + 6 * self.mlp_posenc_size
             # Hard-coded 4 layer MLP
@@ -504,6 +506,7 @@ class SparseGrid(nn.Module):
         self.background_links: Optional[torch.Tensor]
         self.background_data: Optional[torch.Tensor]
         if self.use_background:
+            print('Setting up background')
             background_capacity = (self.background_reso ** 2) * 2
             background_links = torch.arange(
                 background_capacity,
@@ -527,7 +530,7 @@ class SparseGrid(nn.Module):
                 requires_grad=False
             )
 
-        self.register_buffer("links", init_links.view(reso))
+        self.register_buffer("links", init_links.view(reso).to(device=device))
         self.links: torch.Tensor
         self.opt = RenderOptions()
         self.sparse_grad_indexer: Optional[torch.Tensor] = None
@@ -1285,6 +1288,7 @@ class SparseGrid(nn.Module):
             self.capacity: int = reduce(lambda x, y: x * y, reso)
             curr_reso = self.links.shape
             dtype = torch.float32
+            
             reso_facts = [0.5 * curr_reso[i] / reso[i] for i in range(3)]
             X = torch.linspace(
                 reso_facts[0] - 0.5,
@@ -1319,7 +1323,7 @@ class SparseGrid(nn.Module):
                     want_colors=False
                 )
                 sample_vals_density = sample_vals_density
-                all_sample_vals_density.append(sample_vals_density)
+                all_sample_vals_density.append(sample_vals_density.to(device='cpu'))
             self.density_data.grad = None
             self.sh_data.grad = None
             self.sparse_grad_indexer = None
@@ -1338,7 +1342,7 @@ class SparseGrid(nn.Module):
                 print(" Grid weight render", sample_vals_density.shape)
                 for i, cam in enumerate(cameras):
                     _C.grid_weight_render(
-                        sample_vals_density, cam._to_cpp(),
+                        sample_vals_density.to(device=device), cam._to_cpp(),
                         0.5,
                         weight_render_stop_thresh,
                         #  self.opt.last_sample_opaque,
@@ -1369,7 +1373,11 @@ class SparseGrid(nn.Module):
                     weight_thresh = max(weight_thresh, weight_thresh_bounded)
                     print(' Readjusted weight thresh to fit to memory:', weight_thresh)
                     sample_vals_mask = max_wt_grid >= weight_thresh
+                    del weight_thresh_bounded
+
                 del max_wt_grid
+                del offset
+                del scaling
             else:
                 sample_vals_mask = sample_vals_density >= sigma_thresh
                 if max_elements > 0 and max_elements < sample_vals_density.numel() \
@@ -1380,6 +1388,7 @@ class SparseGrid(nn.Module):
                     sigma_thresh = max(sigma_thresh, sigma_thresh_bounded)
                     print(' Readjusted sigma thresh to fit to memory:', sigma_thresh)
                     sample_vals_mask = sample_vals_density >= sigma_thresh
+                    del sigma_thresh_bounded
 
                 if self.opt.last_sample_opaque:
                     # Don't delete the last z layer
@@ -1387,15 +1396,15 @@ class SparseGrid(nn.Module):
 
             if dilate:
                 for i in range(int(dilate)):
-                    sample_vals_mask = _C.dilate(sample_vals_mask)
-            sample_vals_mask = sample_vals_mask.view(-1)
-            sample_vals_density = sample_vals_density.view(-1)
+                    sample_vals_mask = _C.dilate(sample_vals_mask.to(device=device))
+            sample_vals_mask = sample_vals_mask.view(-1).to(device='cpu')
+            sample_vals_density = sample_vals_density.view(-1).to(device='cpu')
             sample_vals_density = sample_vals_density[sample_vals_mask]
             cnz = torch.count_nonzero(sample_vals_mask).item()
 
             # Now we can get the colors for the sparse points
             print('Pass 2/2 (color), eval', cnz, 'sparse pts')
-            indices = sample_vals_mask.nonzero(as_tuple=True)[0]
+            indices = sample_vals_mask.nonzero(as_tuple=True)[0].to(device='cpu')
             all_sample_vals_sh = []
             for i in tqdm(range(0, len(indices), batch_size)):
                 points = utils.to_points(reso, [X, Y, Z], indices[i:i + batch_size]).to(device=device)
@@ -1404,11 +1413,14 @@ class SparseGrid(nn.Module):
                     grid_coords=True,
                     want_colors=True
                 )
-                all_sample_vals_sh.append(sample_vals_sh)
+                all_sample_vals_sh.append(sample_vals_sh.to(device='cpu'))
+            del indices
 
             sample_vals_sh = torch.cat(all_sample_vals_sh, dim=0) if len(all_sample_vals_sh) else torch.empty_like(self.sh_data[:0])
+            sample_vals_sh = sample_vals_sh.to(device='cpu')
             del self.density_data
             del self.sh_data
+            del self.links
             del all_sample_vals_sh
 
             init_links = (
@@ -1425,6 +1437,9 @@ class SparseGrid(nn.Module):
             self.density_data = nn.Parameter(sample_vals_density.view(-1, 1).to(device=device))
             self.sh_data = nn.Parameter(sample_vals_sh.to(device=device))
             self.links = init_links.view(reso).to(device=device)
+
+            del sample_vals_density
+            del init_links
 
             if accelerate and self.links.is_cuda:
                 self.accelerate()
@@ -1470,7 +1485,6 @@ class SparseGrid(nn.Module):
         old_data = self.sh_data.data.cpu()
 
         shrinking = basis_dim < old_basis_dim
-        sigma_arr = torch.tensor([0])
         if shrinking:
             shift = old_basis_dim
             arr = torch.arange(basis_dim)
@@ -1504,7 +1518,7 @@ class SparseGrid(nn.Module):
         World coordinates to grid coordinates. Grid coordinates are
         normalized to [0, n_voxels] in each side
 
-        :param points: (N, 3)
+        :paraSparseGridm points: (N, 3)
         :return: (N, 3)
         """
         gsz = self._grid_size()

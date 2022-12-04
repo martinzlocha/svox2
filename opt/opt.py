@@ -19,7 +19,7 @@ import math
 import argparse
 import cv2
 from util.dataset import datasets
-from util.util import Timing, get_expon_lr_func, generate_dirs_equirect, viridis_cmap, compute_ssim
+from util.util import Timing, get_expon_lr_func, generate_dirs_equirect, viridis_cmap, compute_ssim, garbage_collect_and_print_usage
 from util import config_util
 from dataset_utils import point_cloud
 
@@ -296,7 +296,7 @@ factor = 1
 dset = datasets[args.dataset_type](
                args.data_dir,
                split="train",
-               device=device,
+               device="cpu",
                factor=factor,
                n_images=args.n_train,
                **config_util.build_data_options(args))
@@ -305,7 +305,10 @@ if args.background_nlayers > 0 and not dset.should_use_background:
     warn('Using a background model for dataset type ' + str(type(dset)) + ' which typically does not use background')
 
 dset_test = datasets[args.dataset_type](
-        args.data_dir, split="test", **config_util.build_data_options(args))
+        args.data_dir, split="test", device="cpu", **config_util.build_data_options(args))
+
+print('After dataset load')
+garbage_collect_and_print_usage()
 
 global_start_time = datetime.now()
 
@@ -322,6 +325,9 @@ grid = svox2.SparseGrid(reso=reso_list[reso_id],
                         mlp_width=args.mlp_width,
                         background_nlayers=args.background_nlayers,
                         background_reso=args.background_reso)
+
+print('After grid creation')
+garbage_collect_and_print_usage()
 
 # DC -> gray; mind the SH scaling!
 grid.sh_data.data[:] = 0.0
@@ -362,7 +368,7 @@ print('Render options', grid.opt)
 gstep_id_base = 0
 
 resample_cameras = [
-        svox2.Camera(c2w.to(device=device),
+        svox2.Camera(c2w,
                      dset.intrins.get('fx', i),
                      dset.intrins.get('fy', i),
                      dset.intrins.get('cx', i),
@@ -417,36 +423,18 @@ def set_grid_density(grid: svox2.svox2.SparseGrid,
     
     grid.density_data = torch.nn.Parameter(optimal_density)
 
-def get_links(points):
-    points = grid.world2grid(points)
-    points.clamp_min_(0.0)
-    for i in range(3):
-        points[:, i].clamp_max_(grid.links.size(i) - 1)
-    l = points.to(torch.long)
-    for i in range(3):
-        l[:, i].clamp_max_(grid.links.size(i) - 2)
-    wb = points - l
-    wa = 1.0 - wb
-    lx, ly, lz = l.unbind(-1)
-    links000 = grid.links[lx, ly, lz]
-    links001 = grid.links[lx, ly, lz + 1]
-    links010 = grid.links[lx, ly + 1, lz]
-    links011 = grid.links[lx, ly + 1, lz + 1]
-    links100 = grid.links[lx + 1, ly, lz]
-    links101 = grid.links[lx + 1, ly, lz + 1]
-    links110 = grid.links[lx + 1, ly + 1, lz]
-    links111 = grid.links[lx + 1, ly + 1, lz + 1]
-    
-    return (links000, links001, links010, links011, links100, links101, links110, links111), (wa, wb)
-
 if args.init_from_point_cloud:
     pc_point_count = 100000000
     pc_orig = load_pointcloud(args.data_dir)
     pc = pc_orig.get_pruned_pointcloud(pc_point_count)
-    pc_keep_points = pc.points.cuda()
+    pc_keep_points = pc.points.to(device=device)
     print(f"Keep points: {pc_keep_points.size()}")
     set_grid_density(grid, pc_keep_points)
     # grid.save_voxels_to_dict(ckpt_path)
+
+    del pc_orig
+    del pc
+    del pc_keep_points
 
     grid.resample(reso=reso_list[0],
                 sigma_thresh=args.density_thresh,
@@ -454,6 +442,9 @@ if args.init_from_point_cloud:
                 dilate=1,
                 cameras=resample_cameras if args.thresh_type == 'weight' else None,
                 max_elements=args.max_grid_elements)
+
+    print('After point cloud init and resample')
+    garbage_collect_and_print_usage()
 
 if WANDB_ON:
   wandb.log({
@@ -494,8 +485,8 @@ while True:
 
             n_images_gen = 0
             for i, img_id in tqdm(enumerate(img_ids), total=len(img_ids)):
-                c2w = dset_test.c2w[img_id].to(device=device)
-                cam = svox2.Camera(c2w,
+                c2w = dset_test.c2w[img_id]
+                cam = svox2.Camera(c2w.to(device=device),
                                    dset_test.intrins.get('fx', img_id),
                                    dset_test.intrins.get('fy', img_id),
                                    dset_test.intrins.get('cx', img_id),
@@ -592,18 +583,18 @@ while True:
                 lr_basis = args.lr_basis * lr_basis_factor
 
             batch_end = min(batch_begin + args.batch_size, epoch_size)
-            batch_origins = dset.rays.origins[batch_begin: batch_end]
-            batch_dirs = dset.rays.dirs[batch_begin: batch_end]
-            batch_depths = dset.rays.depths[batch_begin: batch_end]
-            rgb_gt = dset.rays.gt[batch_begin: batch_end]
+            batch_origins = dset.rays.origins[batch_begin: batch_end].to(device=device)
+            batch_dirs = dset.rays.dirs[batch_begin: batch_end].to(device=device)
+            batch_depths = dset.rays.depths[batch_begin: batch_end].to(device=device)
+            rgb_gt = dset.rays.gt[batch_begin: batch_end].to(device=device)
             rays = svox2.Rays(batch_origins, batch_dirs, batch_depths)
 
             lambda_sparsity = args.lambda_sparsity
-            if gstep_id >= 64000:
+            if gstep_id >= args.n_iters - 12800 * 3:
               lambda_sparsity = args.lambda_sparsity / 10
-            if gstep_id >= 76800:
+            if gstep_id >= args.n_iters - 12800 * 2:
               lambda_sparsity = args.lambda_sparsity / 100
-            if gstep_id >= 89600:
+            if gstep_id >= args.n_iters - 12800:
               lambda_sparsity = args.lambda_sparsity / 1000
             if gstep_id % 12800 == 0:
               print(f'Lambda sparsity: {lambda_sparsity}')
@@ -616,6 +607,11 @@ while True:
 
             #  with Timing("loss_comp"):
             mse = F.mse_loss(rgb_gt, rgb_pred)
+
+            del batch_origins
+            del batch_dirs
+            del batch_depths
+            del rgb_gt
 
             # Stats
             mse_num : float = mse.detach().item()
@@ -757,8 +753,6 @@ while True:
                 dilate=2, #use_sparsify,
                 cameras=resample_cameras if args.thresh_type == 'weight' else None,
                 max_elements=args.max_grid_elements)
-        #optimal_density = get_links(pc_points)
-        #neg_optimal_density = get_links(negative_points)
 
         if grid.use_background and reso_id <= 1:
             grid.sparsify_background(args.background_density_thresh)
@@ -771,6 +765,9 @@ while True:
             factor //= 2
             dset.gen_rays(factor=factor)
             dset.shuffle_rays()
+
+        print('After resample')
+        garbage_collect_and_print_usage()
 
     if gstep_id_base >= args.n_iters:
         print('* Final eval and save')
@@ -802,7 +799,7 @@ if WANDB_ON:
         avg_ssim = 0.0
         avg_lpips = 0.0
         n_images_gen = 0
-        c2ws = dset.c2w.to(device=device)
+        c2ws = dset.c2w
 
         frames = []
         for img_id in tqdm(range(0, n_images, img_eval_interval)):
@@ -811,7 +808,7 @@ if WANDB_ON:
             w = dset_w
             h = dset_h
 
-            cam = svox2.Camera(c2ws[img_id],
+            cam = svox2.Camera(c2ws[img_id].to(device=device),
                             dset.intrins.get('fx', img_id),
                             dset.intrins.get('fy', img_id),
                             dset.intrins.get('cx', img_id) + (w - dset_w) * 0.5,

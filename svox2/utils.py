@@ -89,7 +89,6 @@ def to_points(reso, points, ids):
         ],
         dim=-1)
 
-
 # SH
 
 SH_C0 = 0.28209479177387814

@@ -1,3 +1,4 @@
+import gc
 import torch
 import torch.cuda
 import torch.nn.functional as F
@@ -483,3 +484,39 @@ def pose_spherical(theta : float, phi : float, radius : float, offset : Optional
     if offset is not None:
         c2w[:3, 3] += offset
     return c2w
+
+
+def format_memory_usage(usage):
+    if usage < 1024:
+        return f'{usage} B'
+    elif usage < 1024 * 1024:
+        return f'{(usage / 1024):.2f} KB'
+    elif usage < 1024 * 1024 * 1024:
+        return f'{(usage / 1024 / 1024):.2f} MB'
+    return f'{(usage / 1024 / 1024 / 1024):.2f} GB'
+
+def garbage_collect_and_print_usage(only_cuda = False, top_n = 20):
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    objects = []
+
+    for obj in gc.get_objects():
+        try:
+            if torch.is_tensor(obj) or (hasattr(obj, 'data') and torch.is_tensor(obj.data)):
+                if not only_cuda or obj.is_cuda: 
+                    objects.append((obj.element_size() * obj.nelement(), obj.size(), type(obj), obj.is_cuda, obj.dtype))
+        except:
+            pass
+
+    if not objects:
+        print('No tensors on cuda')
+    else:
+        print('Largest tensors on cuda:')
+
+    objects = sorted(objects, reverse=True, key=lambda entry: entry[0])
+    for (memory_usage, size, obj_type, is_cuda, d_type) in objects[:top_n]:
+        print(f'Size: {size}, DType: {d_type}, Is cuda: {is_cuda}, Memory usage: {format_memory_usage(memory_usage)}')
+
+    if len(objects) > top_n:
+        print(f'Shown top {top_n} objects, {len(objects) - top_n} hidden.')
