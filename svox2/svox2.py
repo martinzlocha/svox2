@@ -1387,6 +1387,7 @@ class SparseGrid(nn.Module):
                     sigma_thresh = max(sigma_thresh, sigma_thresh_bounded)
                     print(' Readjusted sigma thresh to fit to memory:', sigma_thresh)
                     sample_vals_mask = sample_vals_density >= sigma_thresh
+                    del sigma_thresh_bounded
 
                 if self.opt.last_sample_opaque:
                     # Don't delete the last z layer
@@ -1402,7 +1403,7 @@ class SparseGrid(nn.Module):
 
             # Now we can get the colors for the sparse points
             print('Pass 2/2 (color), eval', cnz, 'sparse pts')
-            indices = sample_vals_mask.nonzero(as_tuple=True)[0]
+            indices = sample_vals_mask.nonzero(as_tuple=True)[0].to(device='cpu')
             all_sample_vals_sh = []
             for i in tqdm(range(0, len(indices), batch_size)):
                 points = utils.to_points(reso, [X, Y, Z], indices[i:i + batch_size]).to(device=device)
@@ -1411,7 +1412,8 @@ class SparseGrid(nn.Module):
                     grid_coords=True,
                     want_colors=True
                 )
-                all_sample_vals_sh.append(sample_vals_sh)
+                all_sample_vals_sh.append(sample_vals_sh.to(device='cpu'))
+            del indices
 
             sample_vals_sh = torch.cat(all_sample_vals_sh, dim=0) if len(all_sample_vals_sh) else torch.empty_like(self.sh_data[:0])
             del self.density_data
