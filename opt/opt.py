@@ -583,11 +583,11 @@ while True:
                 lr_basis = args.lr_basis * lr_basis_factor
 
             batch_end = min(batch_begin + args.batch_size, epoch_size)
-            batch_origins = dset.rays.origins[batch_begin: batch_end]
-            batch_dirs = dset.rays.dirs[batch_begin: batch_end]
-            batch_depths = dset.rays.depths[batch_begin: batch_end]
-            rgb_gt = dset.rays.gt[batch_begin: batch_end]
-            rays = svox2.Rays(batch_origins.to(device=device), batch_dirs.to(device=device), batch_depths.to(device=device))
+            batch_origins = dset.rays.origins[batch_begin: batch_end].to(device=device)
+            batch_dirs = dset.rays.dirs[batch_begin: batch_end].to(device=device)
+            batch_depths = dset.rays.depths[batch_begin: batch_end].to(device=device)
+            rgb_gt = dset.rays.gt[batch_begin: batch_end].to(device=device)
+            rays = svox2.Rays(batch_origins, batch_dirs, batch_depths)
 
             lambda_sparsity = args.lambda_sparsity
             if gstep_id >= args.n_iters - 12800 * 3:
