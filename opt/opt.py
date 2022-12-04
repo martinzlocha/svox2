@@ -608,6 +608,11 @@ while True:
             #  with Timing("loss_comp"):
             mse = F.mse_loss(rgb_gt, rgb_pred)
 
+            del batch_origins
+            del batch_dirs
+            del batch_depths
+            del rgb_gt
+
             # Stats
             mse_num : float = mse.detach().item()
             psnr = -10.0 * math.log10(mse_num)
