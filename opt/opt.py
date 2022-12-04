@@ -587,7 +587,7 @@ while True:
             batch_dirs = dset.rays.dirs[batch_begin: batch_end]
             batch_depths = dset.rays.depths[batch_begin: batch_end]
             rgb_gt = dset.rays.gt[batch_begin: batch_end]
-            rays = svox2.Rays(batch_origins, batch_dirs, batch_depths)
+            rays = svox2.Rays(batch_origins.to(device=device), batch_dirs.to(device=device), batch_depths.to(device=device))
 
             lambda_sparsity = args.lambda_sparsity
             if gstep_id >= args.n_iters - 12800 * 3:
@@ -760,6 +760,9 @@ while True:
             factor //= 2
             dset.gen_rays(factor=factor)
             dset.shuffle_rays()
+
+        print('After resample')
+        garbage_collect_and_print_usage(only_cuda=True)
 
     if gstep_id_base >= args.n_iters:
         print('* Final eval and save')
