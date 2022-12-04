@@ -514,7 +514,7 @@ def garbage_collect_and_print_usage(only_cuda = False, top_n = 20):
     else:
         print('Largest tensors on cuda:')
 
-    objects = sorted(objects, reverse = True)
+    objects = sorted(objects, reverse=True, key=lambda entry: entry[0])
     for (memory_usage, size, obj_type, is_cuda) in objects[:top_n]:
         print(f'Object: {obj_type}, Is cuda: {is_cuda}, Size: {size}, Memory usage: {format_memory_usage(memory_usage)}')
 
