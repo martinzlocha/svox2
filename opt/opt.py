@@ -436,9 +436,6 @@ if args.init_from_point_cloud:
     del pc
     del pc_keep_points
 
-    print('After point cloud init')
-    garbage_collect_and_print_usage(only_cuda=True)
-
     grid.resample(reso=reso_list[0],
                 sigma_thresh=args.density_thresh,
                 weight_thresh=args.weight_thresh / reso_list[0][2],
@@ -446,7 +443,7 @@ if args.init_from_point_cloud:
                 cameras=resample_cameras if args.thresh_type == 'weight' else None,
                 max_elements=args.max_grid_elements)
 
-    print('After resample')
+    print('After point cloud init and resample')
     garbage_collect_and_print_usage(only_cuda=True)
 
 if WANDB_ON:
