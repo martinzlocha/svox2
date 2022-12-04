@@ -10,7 +10,7 @@ from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor
 import open3d as o3d
 import open3d.core as o3c
-from .utils import get_rays, img_file_path_from_frame, depth_file_path_from_frame, confidence_file_path_from_frame, load_depth_file, load_confidence_file
+from dataset_utils.utils import get_rays, img_file_path_from_frame, depth_file_path_from_frame, confidence_file_path_from_frame, load_depth_file, load_confidence_file
 
 
 def _get_points_and_features(frame: Dict, dataset_path: str, camera_angle_x: float, clipping_distance: Optional[float] = None, translation: Optional[torch.Tensor]=None, scaling: Optional[float]=None):
