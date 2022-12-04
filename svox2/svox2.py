@@ -1321,7 +1321,7 @@ class SparseGrid(nn.Module):
                     grid_coords=True,
                     want_colors=False
                 )
-                sample_vals_density = sample_vals_density
+                sample_vals_density = sample_vals_density.to(device='cpu')
                 all_sample_vals_density.append(sample_vals_density)
             self.density_data.grad = None
             self.sh_data.grad = None
@@ -1433,6 +1433,7 @@ class SparseGrid(nn.Module):
             self.sh_data = nn.Parameter(sample_vals_sh.to(device=device))
             self.links = init_links.view(reso).to(device=device)
 
+            del sample_vals_density
             del init_links
 
             if accelerate and self.links.is_cuda:
