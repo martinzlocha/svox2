@@ -436,6 +436,9 @@ if args.init_from_point_cloud:
     del pc
     del pc_keep_points
 
+    print('After point cloud init')
+    garbage_collect_and_print_usage(only_cuda=True)
+
     grid.resample(reso=reso_list[0],
                 sigma_thresh=args.density_thresh,
                 weight_thresh=args.weight_thresh / reso_list[0][2],
@@ -443,8 +446,8 @@ if args.init_from_point_cloud:
                 cameras=resample_cameras if args.thresh_type == 'weight' else None,
                 max_elements=args.max_grid_elements)
 
-print('After point cloud init')
-garbage_collect_and_print_usage(only_cuda=True)
+    print('After resample')
+    garbage_collect_and_print_usage(only_cuda=True)
 
 if WANDB_ON:
   wandb.log({
@@ -590,11 +593,11 @@ while True:
             rays = svox2.Rays(batch_origins, batch_dirs, batch_depths)
 
             lambda_sparsity = args.lambda_sparsity
-            if gstep_id >= 64000:
+            if gstep_id >= args.n_iters - 12800 * 3:
               lambda_sparsity = args.lambda_sparsity / 10
-            if gstep_id >= 76800:
+            if gstep_id >= args.n_iters - 12800 * 2:
               lambda_sparsity = args.lambda_sparsity / 100
-            if gstep_id >= 89600:
+            if gstep_id >= args.n_iters - 12800:
               lambda_sparsity = args.lambda_sparsity / 1000
             if gstep_id % 12800 == 0:
               print(f'Lambda sparsity: {lambda_sparsity}')
