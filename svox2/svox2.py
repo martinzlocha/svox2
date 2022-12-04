@@ -430,7 +430,7 @@ class SparseGrid(nn.Module):
             Z = torch.arange(reso[2], dtype=torch.float32, device='cpu') - 0.5
             X, Y, Z = torch.meshgrid(X, Y, Z)
             points = torch.stack((X, Y, Z), dim=-1).view(-1, 3)
-            gsz = torch.tensor(reso)
+            gsz = torch.tensor(reso, device='cpu')
             roffset = 1.0 / gsz - 1.0
             rscaling = 2.0 / gsz
             points = torch.addcmul(
@@ -465,6 +465,7 @@ class SparseGrid(nn.Module):
         )
 
         if self.basis_type == BASIS_TYPE_3D_TEXTURE:
+            print('Setting up 3D texture')
             # Unit sphere embedded in a cube
             self.basis_data = nn.Parameter(
                 torch.zeros(
@@ -473,6 +474,7 @@ class SparseGrid(nn.Module):
                 )
             )
         elif self.basis_type == BASIS_TYPE_MLP:
+            print('Setting up MLP')
             D_rgb = mlp_width
             dir_in_dims = 3 + 6 * self.mlp_posenc_size
             # Hard-coded 4 layer MLP
@@ -504,6 +506,7 @@ class SparseGrid(nn.Module):
         self.background_links: Optional[torch.Tensor]
         self.background_data: Optional[torch.Tensor]
         if self.use_background:
+            print('Setting up background')
             background_capacity = (self.background_reso ** 2) * 2
             background_links = torch.arange(
                 background_capacity,
@@ -527,8 +530,7 @@ class SparseGrid(nn.Module):
                 requires_grad=False
             )
 
-        init_links = init_links.to(device=device)
-        self.register_buffer("links", init_links.view(reso))
+        self.register_buffer("links", init_links.view(reso).to(device=device))
         self.links: torch.Tensor
         self.opt = RenderOptions()
         self.sparse_grad_indexer: Optional[torch.Tensor] = None
@@ -1471,7 +1473,6 @@ class SparseGrid(nn.Module):
         old_data = self.sh_data.data.cpu()
 
         shrinking = basis_dim < old_basis_dim
-        sigma_arr = torch.tensor([0])
         if shrinking:
             shift = old_basis_dim
             arr = torch.arange(basis_dim)
@@ -1505,7 +1506,7 @@ class SparseGrid(nn.Module):
         World coordinates to grid coordinates. Grid coordinates are
         normalized to [0, n_voxels] in each side
 
-        :param points: (N, 3)
+        :paraSparseGridm points: (N, 3)
         :return: (N, 3)
         """
         gsz = self._grid_size()

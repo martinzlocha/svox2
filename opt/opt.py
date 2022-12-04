@@ -423,9 +423,6 @@ def set_grid_density(grid: svox2.svox2.SparseGrid,
     
     grid.density_data = torch.nn.Parameter(optimal_density)
 
-print('Before point cloud init')
-garbage_collect_and_print_usage(only_cuda=True)
-
 if args.init_from_point_cloud:
     pc_point_count = 100000000
     pc_orig = load_pointcloud(args.data_dir)
