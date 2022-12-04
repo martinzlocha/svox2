@@ -1325,7 +1325,7 @@ class SparseGrid(nn.Module):
                     grid_coords=True,
                     want_colors=False
                 )
-                sample_vals_density = sample_vals_density
+                sample_vals_density = sample_vaxwls_density
                 all_sample_vals_density.append(sample_vals_density)
             self.density_data.grad = None
             self.sh_data.grad = None
@@ -1335,7 +1335,7 @@ class SparseGrid(nn.Module):
             self.sh_rms = None
 
             print("==== 2 ====")
-            utils.garbage_collect_and_print_usage(only_cuda=True)
+            utils.garbage_collect_and_print_usage(only_cuda=True, top_n=100)
 
             sample_vals_density = torch.cat(
                     all_sample_vals_density, dim=0).view(reso)
