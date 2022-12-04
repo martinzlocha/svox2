@@ -1326,7 +1326,7 @@ class SparseGrid(nn.Module):
                     want_colors=False
                 )
                 sample_vals_density = sample_vals_density
-                all_sample_vals_density.append(sample_vals_density)
+                all_sample_vals_density.append(sample_vals_density.to(device='cpu'))
             self.density_data.grad = None
             self.sh_data.grad = None
             self.sparse_grad_indexer = None
@@ -1348,7 +1348,7 @@ class SparseGrid(nn.Module):
                 print(" Grid weight render", sample_vals_density.shape)
                 for i, cam in enumerate(cameras):
                     _C.grid_weight_render(
-                        sample_vals_density, cam._to_cpp(),
+                        sample_vals_density.to(device=device), cam._to_cpp(),
                         0.5,
                         weight_render_stop_thresh,
                         #  self.opt.last_sample_opaque,
@@ -1405,7 +1405,7 @@ class SparseGrid(nn.Module):
 
             if dilate:
                 for i in range(int(dilate)):
-                    sample_vals_mask = _C.dilate(sample_vals_mask)
+                    sample_vals_mask = _C.dilate(sample_vals_mask.to(device=device))
             sample_vals_mask = sample_vals_mask.view(-1).to(device='cpu')
             sample_vals_density = sample_vals_density.view(-1).to(device='cpu')
             sample_vals_density = sample_vals_density[sample_vals_mask]
