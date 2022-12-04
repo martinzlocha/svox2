@@ -505,7 +505,7 @@ def garbage_collect_and_print_usage(only_cuda = False, top_n = 20):
         try:
             if torch.is_tensor(obj) or (hasattr(obj, 'data') and torch.is_tensor(obj.data)):
                 if not only_cuda or obj.is_cuda: 
-                    objects.append((obj.element_size() * obj.nelement(), obj.size(), type(obj), obj.is_cuda))
+                    objects.append((obj.element_size() * obj.nelement(), obj.size(), type(obj), obj.is_cuda, obj.dtype))
         except:
             pass
 
@@ -515,8 +515,8 @@ def garbage_collect_and_print_usage(only_cuda = False, top_n = 20):
         print('Largest tensors on cuda:')
 
     objects = sorted(objects, reverse=True, key=lambda entry: entry[0])
-    for (memory_usage, size, obj_type, is_cuda) in objects[:top_n]:
-        print(f'Object: {obj_type}, Is cuda: {is_cuda}, Size: {size}, Memory usage: {format_memory_usage(memory_usage)}')
+    for (memory_usage, size, obj_type, is_cuda, d_type) in objects[:top_n]:
+        print(f'Size: {size}, DType: {d_type}, Is cuda: {is_cuda}, Memory usage: {format_memory_usage(memory_usage)}')
 
     if len(objects) > top_n:
         print(f'Shown top {top_n} objects, {len(objects) - top_n} hidden.')
