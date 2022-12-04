@@ -1372,7 +1372,11 @@ class SparseGrid(nn.Module):
                     weight_thresh = max(weight_thresh, weight_thresh_bounded)
                     print(' Readjusted weight thresh to fit to memory:', weight_thresh)
                     sample_vals_mask = max_wt_grid >= weight_thresh
+                    del weight_thresh_bounded
+
                 del max_wt_grid
+                del offset
+                del scaling
             else:
                 sample_vals_mask = sample_vals_density >= sigma_thresh
                 if max_elements > 0 and max_elements < sample_vals_density.numel() \
@@ -1428,6 +1432,8 @@ class SparseGrid(nn.Module):
             self.density_data = nn.Parameter(sample_vals_density.view(-1, 1).to(device=device))
             self.sh_data = nn.Parameter(sample_vals_sh.to(device=device))
             self.links = init_links.view(reso).to(device=device)
+
+            del init_links
 
             if accelerate and self.links.is_cuda:
                 self.accelerate()
