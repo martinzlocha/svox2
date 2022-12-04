@@ -1,3 +1,4 @@
+import gc
 from functools import partial
 import torch
 from torch import nn
@@ -88,6 +89,32 @@ def to_points(reso, points, ids):
             points[2][z_ids]
         ],
         dim=-1)
+
+def garbage_collect_and_print_usage(only_cuda = False, top_n = 20):
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    objects = []
+
+    for obj in gc.get_objects():
+        try:
+            if torch.is_tensor(obj) or (hasattr(obj, 'data') and torch.is_tensor(obj.data)):
+                if not only_cuda or obj.is_cuda: 
+                    objects.append((obj.size(), type(obj), obj.is_cuda))
+        except:
+            pass
+
+    if not objects:
+        print('No tensors on cuda')
+    else:
+        print('Largest tensors on cuda:')
+
+    objects = sorted(objects, reverse = True)
+    for (size, obj_type, is_cuda) in objects[:top_n]:
+        print(f'Object: {obj_type}, Is cuda: {is_cuda}, Size: {size}')
+
+    if len(objects) > top_n:
+        print(f'Shown top {top_n} objects, {len(objects) - top_n} hidden.')
 
 
 # SH
