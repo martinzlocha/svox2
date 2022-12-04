@@ -1288,9 +1288,6 @@ class SparseGrid(nn.Module):
             self.capacity: int = reduce(lambda x, y: x * y, reso)
             curr_reso = self.links.shape
             dtype = torch.float32
-
-            print("==== 1 ====")
-            utils.garbage_collect_and_print_usage(only_cuda=True)
             
             reso_facts = [0.5 * curr_reso[i] / reso[i] for i in range(3)]
             X = torch.linspace(
@@ -1333,9 +1330,6 @@ class SparseGrid(nn.Module):
             self.sparse_sh_grad_indexer = None
             self.density_rms = None
             self.sh_rms = None
-
-            print("==== 2 ====")
-            utils.garbage_collect_and_print_usage(only_cuda=True, top_n=100)
 
             sample_vals_density = torch.cat(
                     all_sample_vals_density, dim=0).view(reso)
@@ -1400,9 +1394,6 @@ class SparseGrid(nn.Module):
                     # Don't delete the last z layer
                     sample_vals_mask[:, :, -1] = 1
 
-            print("==== 3 ====")
-            utils.garbage_collect_and_print_usage(only_cuda=True)
-
             if dilate:
                 for i in range(int(dilate)):
                     sample_vals_mask = _C.dilate(sample_vals_mask.to(device=device))
@@ -1410,9 +1401,6 @@ class SparseGrid(nn.Module):
             sample_vals_density = sample_vals_density.view(-1).to(device='cpu')
             sample_vals_density = sample_vals_density[sample_vals_mask]
             cnz = torch.count_nonzero(sample_vals_mask).item()
-
-            print("==== 4 ====")
-            utils.garbage_collect_and_print_usage(only_cuda=True)
 
             # Now we can get the colors for the sparse points
             print('Pass 2/2 (color), eval', cnz, 'sparse pts')
@@ -1439,9 +1427,6 @@ class SparseGrid(nn.Module):
                 torch.cumsum(sample_vals_mask.to(torch.int32), dim=-1).int() - 1
             )
             init_links[~sample_vals_mask] = -1
-
-            print("==== 5 ====")
-            utils.garbage_collect_and_print_usage(only_cuda=True)
 
             self.capacity = cnz
             print(" New cap:", self.capacity)
