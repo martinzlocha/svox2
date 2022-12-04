@@ -1,3 +1,4 @@
+import gc
 import torch
 import torch.cuda
 import torch.nn.functional as F
@@ -483,3 +484,21 @@ def pose_spherical(theta : float, phi : float, radius : float, offset : Optional
     if offset is not None:
         c2w[:3, 3] += offset
     return c2w
+
+def garbage_collect_and_print_usage():
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    objects = []
+
+    for obj in gc.get_objects():
+        try:
+            if torch.is_tensor(obj) or (hasattr(obj, 'data') and torch.is_tensor(obj.data)):
+                objects.append((obj.size(), type(obj), obj.is_cuda))
+        except:
+            pass
+
+    print('Largest tensors on cuda')
+    objects = sorted(objects, reverse = True)
+    for (size, obj_type, is_cuda) in objects:
+        print(f'Object: {obj_type}, Is cuda: {is_cuda}, Size: {size}')

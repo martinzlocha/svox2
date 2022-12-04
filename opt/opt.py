@@ -19,7 +19,7 @@ import math
 import argparse
 import cv2
 from util.dataset import datasets
-from util.util import Timing, get_expon_lr_func, generate_dirs_equirect, viridis_cmap, compute_ssim
+from util.util import Timing, get_expon_lr_func, generate_dirs_equirect, viridis_cmap, compute_ssim, garbage_collect_and_print_usage
 from util import config_util
 from dataset_utils import point_cloud
 
@@ -292,11 +292,14 @@ with open(path.join(args.train_dir, 'args.json'), 'w') as f:
 torch.manual_seed(20200823)
 np.random.seed(20200823)
 
+print('Before dataset load')
+garbage_collect_and_print_usage()
+
 factor = 1
 dset = datasets[args.dataset_type](
                args.data_dir,
                split="train",
-               device=device,
+               device="cpu",
                factor=factor,
                n_images=args.n_train,
                **config_util.build_data_options(args))
@@ -305,7 +308,10 @@ if args.background_nlayers > 0 and not dset.should_use_background:
     warn('Using a background model for dataset type ' + str(type(dset)) + ' which typically does not use background')
 
 dset_test = datasets[args.dataset_type](
-        args.data_dir, split="test", **config_util.build_data_options(args))
+        args.data_dir, split="test", device="cpu", **config_util.build_data_options(args))
+
+print('After dataset load')
+garbage_collect_and_print_usage()
 
 global_start_time = datetime.now()
 
@@ -417,27 +423,8 @@ def set_grid_density(grid: svox2.svox2.SparseGrid,
     
     grid.density_data = torch.nn.Parameter(optimal_density)
 
-def get_links(points):
-    points = grid.world2grid(points)
-    points.clamp_min_(0.0)
-    for i in range(3):
-        points[:, i].clamp_max_(grid.links.size(i) - 1)
-    l = points.to(torch.long)
-    for i in range(3):
-        l[:, i].clamp_max_(grid.links.size(i) - 2)
-    wb = points - l
-    wa = 1.0 - wb
-    lx, ly, lz = l.unbind(-1)
-    links000 = grid.links[lx, ly, lz]
-    links001 = grid.links[lx, ly, lz + 1]
-    links010 = grid.links[lx, ly + 1, lz]
-    links011 = grid.links[lx, ly + 1, lz + 1]
-    links100 = grid.links[lx + 1, ly, lz]
-    links101 = grid.links[lx + 1, ly, lz + 1]
-    links110 = grid.links[lx + 1, ly + 1, lz]
-    links111 = grid.links[lx + 1, ly + 1, lz + 1]
-    
-    return (links000, links001, links010, links011, links100, links101, links110, links111), (wa, wb)
+print('Before point cloud init')
+garbage_collect_and_print_usage()
 
 if args.init_from_point_cloud:
     pc_point_count = 100000000
@@ -454,6 +441,13 @@ if args.init_from_point_cloud:
                 dilate=1,
                 cameras=resample_cameras if args.thresh_type == 'weight' else None,
                 max_elements=args.max_grid_elements)
+
+    del pc_orig
+    del pc
+    del pc_keep_points
+
+print('After point cloud init')
+garbage_collect_and_print_usage()
 
 if WANDB_ON:
   wandb.log({
@@ -757,8 +751,6 @@ while True:
                 dilate=2, #use_sparsify,
                 cameras=resample_cameras if args.thresh_type == 'weight' else None,
                 max_elements=args.max_grid_elements)
-        #optimal_density = get_links(pc_points)
-        #neg_optimal_density = get_links(negative_points)
 
         if grid.use_background and reso_id <= 1:
             grid.sparsify_background(args.background_density_thresh)
