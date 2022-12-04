@@ -120,7 +120,7 @@ class NeRFDataset(DatasetBase):
         print(f'Scene bounds Y: {torch.min(self.c2w[:, 1, 3])} - {torch.max(self.c2w[:, 1, 3])}')
         print(f'Scene bounds Z: {torch.min(self.c2w[:, 2, 3])} - {torch.max(self.c2w[:, 2, 3])}')
 
-        self.gt = torch.stack(all_gt).float() / 255.0
+        self.gt = (torch.stack(all_gt) / 255.0).to(dtype=torch.float16)
         if self.gt.size(-1) == 4:
             if white_bkgd:
                 # Apply alpha channel
@@ -154,14 +154,14 @@ class NeRFDataset(DatasetBase):
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 depths = list(tqdm(executor.map(partial(load_depth_file, width=self.w_full, height=self.h_full), depth_paths), total=len(j["frames"])))
 
-            depths = torch.stack(depths).float()
-            self.depths = depths * scene_scale
+            depths = torch.stack(depths)
+            self.depths = (depths * scene_scale).to(dtype=torch.float32)
 
             if 'confidence_path' in j["frames"][0]:
                 confidence_paths = map(lambda frame: os.path.join(root, frame["confidence_path"]), j["frames"])
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     confidences = list(tqdm(executor.map(partial(load_confidence_file, width=self.w_full, height=self.h_full), confidence_paths), total=len(j["frames"])))
-                self.confidences = torch.stack(confidences).byte()
+                self.confidences = torch.stack(confidences).to(dtype=torch.uint8)
 
         self.split = split
         self.scene_scale = scene_scale

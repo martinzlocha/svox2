@@ -193,9 +193,7 @@ class LLFFDataset(DatasetBase):
                 self.ndc_coeffs)
         dirs /= torch.norm(dirs, dim=-1, keepdim=True)
 
-        self.rays_init = Rays(origins=origins, dirs=dirs, gt=self.rays.gt)
-        self.rays = self.rays_init
-
+        self.rays = Rays(origins=origins, dirs=dirs, gt=self.rays.gt)
 
 
 class SfMData:

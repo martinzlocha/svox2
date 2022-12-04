@@ -300,5 +300,4 @@ class CO3DDataset(DatasetBase):
             dirs = torch.cat([o.view(-1, 3) for o in dirs], dim=0)
             gt = torch.cat([o.reshape(-1, 3) for o in gt], dim=0)
 
-        self.rays_init = Rays(origins=origins, dirs=dirs, gt=gt)
-        self.rays = self.rays_init
+        self.rays = Rays(origins=origins, dirs=dirs, gt=gt)

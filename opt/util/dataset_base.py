@@ -30,7 +30,7 @@ class DatasetBase:
         """
         if self.split == "train":
             del self.rays
-            self.rays = select_or_shuffle_rays(self.rays_init, self.permutation,
+            self.rays = select_or_shuffle_rays(self.rays, self.permutation,
                                                self.epoch_size, self.device)
 
     def gen_rays(self, factor=1):
@@ -56,35 +56,37 @@ class DatasetBase:
         dirs = (self.c2w[:, None, :3, :3] @ dirs)[..., 0]
 
         if factor != 1:
-            gt = F.interpolate(
+            self.gt = F.interpolate(
                 self.gt.permute([0, 3, 1, 2]), size=(self.h, self.w), mode="area"
             ).permute([0, 2, 3, 1])
-            gt = gt.reshape(self.n_images, -1, 3)
+            self.gt = self.gt.reshape(self.n_images, -1, 3)
         else:
-            gt = self.gt.reshape(self.n_images, -1, 3)
+            self.gt = self.gt.reshape(self.n_images, -1, 3)
 
         origins = self.c2w[:, None, :3, 3].expand(-1, self.h * self.w, -1).contiguous()
         if self.split == "train":
             origins = origins.view(-1, 3)
             dirs = dirs.view(-1, 3)
-            gt = gt.reshape(-1, 3)
+            self.gt = self.gt.reshape(-1, 3)
 
         print(f"Avg depth = {torch.mean(self.depths)}")
 
-        depths = self.depths
-
         if hasattr(self, 'confidences'):
             print(f"Confidence count = {torch.bincount(self.confidences.reshape(-1))}")
-            depths[self.confidences != 2] = 0
+            self.depths[self.confidences != 2] = 0
 
-        depths = self.depths / dirs_norm[None, ...]
-        depths = depths.reshape(-1, 1)
+        self.depths /= dirs_norm[None, ...]
+        self.depths = self.depths.reshape(-1, 1)
         del dirs_norm
-        assert origins.size(dim=0) == depths.size(dim=0)
-        assert depths.dim() == 2
+        assert origins.size(dim=0) == self.depths.size(dim=0)
+        assert self.depths.dim() == 2
 
-        self.rays_init = Rays(origins=origins, dirs=dirs, gt=gt, depths=depths)
-        self.rays = self.rays_init
+        self.rays = Rays(origins=origins, dirs=dirs, gt=self.gt, depths=self.depths)
+
+        del self.gt
+        del self.depths
+        if hasattr(self, 'confidences'):
+            del self.confidences
 
     def get_image_size(self, i : int):
         # H, W

@@ -182,11 +182,11 @@ def generate_dirs_equirect(w, h):
 
 
 # Data
-def select_or_shuffle_rays(rays_init : Rays,
+def select_or_shuffle_rays(rays : Rays,
                  permutation: int = False,
                  epoch_size: Optional[int] = None,
                  device: Union[str, torch.device] = "cpu"):
-    n_rays = rays_init.origins.size(0)
+    n_rays = rays.origins.size(0)
     n_samp = n_rays if (epoch_size is None) else epoch_size
     if permutation:
         print(" Shuffling rays")
@@ -194,7 +194,7 @@ def select_or_shuffle_rays(rays_init : Rays,
     else:
         print(" Selecting random rays")
         indexer = torch.randint(n_rays, (n_samp,), device='cpu')
-    return rays_init[indexer].to(device=device)
+    return rays[indexer].to(device=device)
 
 
 def compute_ssim(
