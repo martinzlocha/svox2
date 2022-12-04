@@ -150,6 +150,7 @@ class NeRFDataset(DatasetBase):
         print("Using cx, cy:", cx, cy)
 
         self.intrins_full : Intrin = Intrin(focal, focal, cx, cy)
+        self.intrins : Intrin = self.intrins_full
 
         if use_depth and split == 'train':
             depth_paths = map(lambda frame: os.path.join(root, frame["depth_path"]), j["frames"])
@@ -167,12 +168,6 @@ class NeRFDataset(DatasetBase):
 
         self.split = split
         self.scene_scale = scene_scale
-        if self.split == "train":
-            self.gen_rays(factor=factor)
-        else:
-            # Rays are not needed for testing
-            self.h, self.w = self.h_full, self.w_full
-            self.intrins : Intrin = self.intrins_full
-
+        self.h, self.w = self.h_full, self.w_full
         self.should_use_background = False  # Give warning
 

@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
 from typing import Union, Optional, List
-from .util import select_or_shuffle_rays, Rays, Intrin
+from .util import Rays, Intrin
 
 class DatasetBase:
     split: str
@@ -13,6 +13,8 @@ class DatasetBase:
     intrins_full: Intrin
     c2w: torch.Tensor  # C2W OpenCV poses
     gt: Union[torch.Tensor, List[torch.Tensor]]   # RGB images
+    depths: Union[torch.Tensor, List[torch.Tensor]]
+    confidences: Union[torch.Tensor, List[torch.Tensor]]
     device : Union[str, torch.device]
 
     def __init__(self):
@@ -24,67 +26,30 @@ class DatasetBase:
         self.scene_radius = [1.0, 1.0, 1.0]
         self.permutation = False
 
-    def shuffle_rays(self):
-        """
-        Shuffle all rays
-        """
-        if self.split == "train":
-            del self.rays
-            self.rays = select_or_shuffle_rays(self.rays_init, self.permutation,
-                                               self.epoch_size, self.device)
+    def get_ray_subset(self, indices):
+        frame_size = self.h_full * self.w_full
 
-    def gen_rays(self, factor=1):
-        print(" Generating rays, scaling factor", factor)
-        # Generate rays
-        self.factor = factor
-        self.h = self.h_full // factor
-        self.w = self.w_full // factor
-        true_factor = self.h_full / self.h
-        self.intrins = self.intrins_full.scale(1.0 / true_factor)
-        yy, xx = torch.meshgrid(
-            torch.arange(self.h, dtype=torch.float32) + 0.5,
-            torch.arange(self.w, dtype=torch.float32) + 0.5,
-        )
-        xx = (xx - self.intrins.cx) / self.intrins.fx
-        yy = (yy - self.intrins.cy) / self.intrins.fy
+        frames = indices // (frame_size)
+        frame_offset = indices % frame_size
+
+        xx = frame_offset % w
+        yy = frame_offset // w
         zz = -torch.ones_like(xx)
+
         dirs = torch.stack((xx, yy, zz), dim=-1)  # OpenCV convention
         dirs_norm = torch.norm(dirs, dim=-1)
         dirs /= torch.norm(dirs, dim=-1, keepdim=True)
-        dirs = dirs.reshape(1, -1, 3, 1)
-        del xx, yy, zz
-        dirs = (self.c2w[:, None, :3, :3] @ dirs)[..., 0]
+        dirs = (self.c2w[frames, :3, :3] @ dirs)[..., 0]
+        origins = self.c2w[frames, :3, 3]
 
-        if factor != 1:
-            gt = F.interpolate(
-                self.gt.permute([0, 3, 1, 2]), size=(self.h, self.w), mode="area"
-            ).permute([0, 2, 3, 1])
-            gt = gt.reshape(self.n_images, -1, 3)
-        else:
-            gt = self.gt.reshape(self.n_images, -1, 3)
-
-        origins = self.c2w[:, None, :3, 3].expand(-1, self.h * self.w, -1).contiguous()
-        if self.split == "train":
-            origins = origins.view(-1, 3)
-            dirs = dirs.view(-1, 3)
-            gt = gt.reshape(-1, 3)
-
-        print(f"Avg depth = {torch.mean(self.depths)}")
-
-        depths = self.depths
-
+        gt = self.gt[frames, xx, yy, :]
+        depths = self.depths[frames, xx, yy]
+        depths /= dirs_norm
         if hasattr(self, 'confidences'):
-            print(f"Confidence count = {torch.bincount(self.confidences.reshape(-1))}")
-            depths[self.confidences != 2] = 0
+            confidences = self.confidences[frames, xx, yy]
+            depths[confidences != 2] = 0
 
-        depths = self.depths / dirs_norm[None, ...]
-        depths = depths.reshape(-1, 1)
-        del dirs_norm
-        assert origins.size(dim=0) == depths.size(dim=0)
-        assert depths.dim() == 2
-
-        self.rays_init = Rays(origins=origins, dirs=dirs, gt=gt, depths=depths)
-        self.rays = self.rays_init
+        return Rays(origins=origins, dirs=dirs, gt=gt, depths=depths)
 
     def get_image_size(self, i : int):
         # H, W
@@ -92,3 +57,6 @@ class DatasetBase:
             return tuple(self.image_size[i])
         else:
             return self.h, self.w
+
+    def get_number_of_rays(self):
+        return self.gt.size(0) * self.gt.size(1) * self.gt.size(2)
