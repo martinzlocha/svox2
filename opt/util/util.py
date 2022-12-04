@@ -499,7 +499,11 @@ def garbage_collect_and_print_usage(only_cuda = False, top_n = 20):
         except:
             pass
 
-    print('Largest tensors on cuda')
+    if not objects:
+        print('No tensors on cuda')
+    else:
+        print('Largest tensors on cuda:')
+
     objects = sorted(objects, reverse = True)
     for (size, obj_type, is_cuda) in objects[:top_n]:
         print(f'Object: {obj_type}, Is cuda: {is_cuda}, Size: {size}')

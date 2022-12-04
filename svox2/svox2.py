@@ -420,30 +420,30 @@ class SparseGrid(nn.Module):
 
         n3: int = reduce(lambda x, y: x * y, reso)
         if use_z_order:
-            init_links = utils.gen_morton(reso[0], device=device, dtype=torch.int32).flatten()
+            init_links = utils.gen_morton(reso[0], device='cpu', dtype=torch.int32).flatten()
         else:
-            init_links = torch.arange(n3, device=device, dtype=torch.int32)
+            init_links = torch.arange(n3, device='cpu', dtype=torch.int32)
 
         if use_sphere_bound:
-            X = torch.arange(reso[0], dtype=torch.float32, device=device) - 0.5
-            Y = torch.arange(reso[1], dtype=torch.float32, device=device) - 0.5
-            Z = torch.arange(reso[2], dtype=torch.float32, device=device) - 0.5
+            X = torch.arange(reso[0], dtype=torch.float32, device='cpu') - 0.5
+            Y = torch.arange(reso[1], dtype=torch.float32, device='cpu') - 0.5
+            Z = torch.arange(reso[2], dtype=torch.float32, device='cpu') - 0.5
             X, Y, Z = torch.meshgrid(X, Y, Z)
             points = torch.stack((X, Y, Z), dim=-1).view(-1, 3)
             gsz = torch.tensor(reso)
             roffset = 1.0 / gsz - 1.0
             rscaling = 2.0 / gsz
             points = torch.addcmul(
-                roffset.to(device=points.device),
+                roffset.to(device='cpu'),
                 points,
-                rscaling.to(device=points.device),
+                rscaling.to(device='cpu'),
             )
 
             norms = points.norm(dim=-1)
             mask = norms <= 1.0 + (3 ** 0.5) / gsz.max()
             self.capacity: int = mask.sum()
 
-            data_mask = torch.zeros(n3, dtype=torch.int32, device=device)
+            data_mask = torch.zeros(n3, dtype=torch.int32, device='cpu')
             idxs = init_links[mask].long()
             data_mask[idxs] = 1
             data_mask = torch.cumsum(data_mask, dim=0) - 1
@@ -527,6 +527,7 @@ class SparseGrid(nn.Module):
                 requires_grad=False
             )
 
+        init_links = init_links.to(device=device)
         self.register_buffer("links", init_links.view(reso))
         self.links: torch.Tensor
         self.opt = RenderOptions()
