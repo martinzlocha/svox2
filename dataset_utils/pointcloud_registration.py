@@ -37,10 +37,10 @@ class FrameData:
     def __init__(self, frame_data: Dict, dataset_dir: str, camera_angle_x: float):
         self.camera_angle_x = camera_angle_x
 
-        rgb_file_path = img_file_path_from_frame(frame_data, os.path.join(dataset_dir, "images"), dataset_dir)
+        rgb_file_path = img_file_path_from_frame(frame_data, dataset_dir)
         self.rgb: np.ndarray = imageio.imread(rgb_file_path)
 
-        depth_file_path = depth_file_path_from_frame(frame_data, os.path.join(dataset_dir, "depth"), dataset_dir)
+        depth_file_path = depth_file_path_from_frame(frame_data, dataset_dir)
         self.depth: np.ndarray = load_depth_file(depth_file_path).numpy()
 
         self.transform_matrix = np.array(frame_data["transform_matrix"])
@@ -209,7 +209,7 @@ def get_n_closest_frames(frame_data: List[FrameData], frame: FrameData, n: int) 
 
 
 def run_pairwise_icp(dataset_dir: str):
-    transforms_train = os.path.join(dataset_dir, 'transforms_train_original.json')
+    transforms_train = os.path.join(dataset_dir, 'transforms_train.json')
     with open(transforms_train, 'r') as f:
         train_json = json.load(f)
 
@@ -287,13 +287,17 @@ def pairwise_registration(source, target, trans_init, max_correspondence_distanc
         treg.robust_kernel.RobustKernel(
         treg.robust_kernel.RobustKernelMethod.TukeyLoss, sigma))
 
-    registration_icp = treg.multi_scale_icp(source,
-                            target,
-                            voxel_sizes,
-                            criteria_list,
-                            max_correspondence_distances,
-                            trans_init,
-                            estimation)
+    try:
+        registration_icp = treg.multi_scale_icp(source,
+                                target,
+                                voxel_sizes,
+                                criteria_list,
+                                max_correspondence_distances,
+                                trans_init,
+                                estimation)
+    except RuntimeError as e:
+        print(e)
+        return None, None
 
     if registration_icp.fitness == 0 and registration_icp.inlier_rmse == 0:
         # no correspondence
@@ -340,8 +344,8 @@ def should_add_edge_intersection(pcd1: o3d.t.geometry.PointCloud,
 
     bounding_box1 = pcd1.get_axis_aligned_bounding_box()
     bounding_box2 = pcd2.get_axis_aligned_bounding_box()
-    min_max_1 = np.stack([bounding_box1.get_min_bound().numpy(), bounding_box1.get_max_bound().numpy()], axis=0)  # Shape: (2, 3)
-    min_max_2 = np.stack([bounding_box2.get_min_bound().numpy(), bounding_box2.get_max_bound().numpy()], axis=0)  # Shape: (2, 3)
+    min_max_1 = np.stack([bounding_box1.get_min_bound().cpu().numpy(), bounding_box1.get_max_bound().cpu().numpy()], axis=0)  # Shape: (2, 3)
+    min_max_2 = np.stack([bounding_box2.get_min_bound().cpu().numpy(), bounding_box2.get_max_bound().cpu().numpy()], axis=0)  # Shape: (2, 3)
 
     iou, aabb1_intersection_ratio, aabb2_intersection_ratio = aabb_intersection_ratios(min_max_1, min_max_2)
 
@@ -354,7 +358,7 @@ def should_add_edge_intersection(pcd1: o3d.t.geometry.PointCloud,
     return loop_should_be_closed
 
 
-def unpack_parent_frame(parent_frame: ParentFrame) -> List[np.array]:
+def unpack_parent_frame(parent_frame: ParentFrame) -> List[np.ndarray]:
     return parent_frame.get_all_frame_transforms()
 
 def cluster_frame_data(frames: List[FrameData],
@@ -370,7 +374,7 @@ def run_full_icp(dataset_dir: str,
                  frames_per_cluster: int = 1,
                  thread_pool_size: int = 8) -> None:
     transforms_train = os.path.join(dataset_dir,
-                                    'transforms_train_original.json')
+                                    'transforms_train.json')
     with open(transforms_train, 'r') as f:
         train_json = json.load(f)
 
@@ -381,14 +385,14 @@ def run_full_icp(dataset_dir: str,
     odometry = np.identity(4)
     pose_graph.nodes.append(o3d.pipelines.registration.PoseGraphNode(odometry))
     n_pcds = len(pcds)
-    n_pcds = 900  # debug
+    # n_pcds = 900  # debug
     print('Building pose graph ...')
     for source_id in tqdm(range(n_pcds)):
-        source_pcd = pcds[source_id].pointcloud.as_open3d_tensor(estimate_normals=True)
+        source_pcd = pcds[source_id].pointcloud.as_open3d_tensor(estimate_normals=True, device=device)
         source_trans_inv = invert_transformation_matrix(pcds[source_id].transform_matrix)
         last_loop_closure = source_id
         for target_id in range(source_id+1, n_pcds, forward_frame_step_size):
-            target_pcd = pcds[target_id].pointcloud.as_open3d_tensor(estimate_normals=True)
+            target_pcd = pcds[target_id].pointcloud.as_open3d_tensor(estimate_normals=True, device=device)
             if not (target_id == source_id + 1 or (target_id >= source_id + no_loop_closure_within_frames and target_id >= last_loop_closure + no_loop_closure_within_frames and should_add_edge_intersection(source_pcd, target_pcd))):
                 continue
             target_trans = pcds[target_id].transform_matrix
