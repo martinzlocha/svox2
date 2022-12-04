@@ -485,7 +485,7 @@ def pose_spherical(theta : float, phi : float, radius : float, offset : Optional
         c2w[:3, 3] += offset
     return c2w
 
-def garbage_collect_and_print_usage():
+def garbage_collect_and_print_usage(only_cuda = False, top_n = 20):
     gc.collect()
     torch.cuda.empty_cache()
 
@@ -494,11 +494,12 @@ def garbage_collect_and_print_usage():
     for obj in gc.get_objects():
         try:
             if torch.is_tensor(obj) or (hasattr(obj, 'data') and torch.is_tensor(obj.data)):
-                objects.append((obj.size(), type(obj), obj.is_cuda))
+                if not only_cuda or obj.is_cuda: 
+                    objects.append((obj.size(), type(obj), obj.is_cuda))
         except:
             pass
 
     print('Largest tensors on cuda')
     objects = sorted(objects, reverse = True)
-    for (size, obj_type, is_cuda) in objects:
+    for (size, obj_type, is_cuda) in objects[:top_n]:
         print(f'Object: {obj_type}, Is cuda: {is_cuda}, Size: {size}')

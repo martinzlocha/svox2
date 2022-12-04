@@ -292,9 +292,6 @@ with open(path.join(args.train_dir, 'args.json'), 'w') as f:
 torch.manual_seed(20200823)
 np.random.seed(20200823)
 
-print('Before dataset load')
-garbage_collect_and_print_usage()
-
 factor = 1
 dset = datasets[args.dataset_type](
                args.data_dir,
@@ -311,7 +308,7 @@ dset_test = datasets[args.dataset_type](
         args.data_dir, split="test", device="cpu", **config_util.build_data_options(args))
 
 print('After dataset load')
-garbage_collect_and_print_usage()
+garbage_collect_and_print_usage(only_cuda=True)
 
 global_start_time = datetime.now()
 
@@ -328,6 +325,9 @@ grid = svox2.SparseGrid(reso=reso_list[reso_id],
                         mlp_width=args.mlp_width,
                         background_nlayers=args.background_nlayers,
                         background_reso=args.background_reso)
+
+print('After grid creation')
+garbage_collect_and_print_usage(only_cuda=True)
 
 # DC -> gray; mind the SH scaling!
 grid.sh_data.data[:] = 0.0
@@ -424,16 +424,20 @@ def set_grid_density(grid: svox2.svox2.SparseGrid,
     grid.density_data = torch.nn.Parameter(optimal_density)
 
 print('Before point cloud init')
-garbage_collect_and_print_usage()
+garbage_collect_and_print_usage(only_cuda=True)
 
 if args.init_from_point_cloud:
     pc_point_count = 100000000
     pc_orig = load_pointcloud(args.data_dir)
     pc = pc_orig.get_pruned_pointcloud(pc_point_count)
-    pc_keep_points = pc.points.cuda()
+    pc_keep_points = pc.points.to(device=device)
     print(f"Keep points: {pc_keep_points.size()}")
     set_grid_density(grid, pc_keep_points)
     # grid.save_voxels_to_dict(ckpt_path)
+
+    del pc_orig
+    del pc
+    del pc_keep_points
 
     grid.resample(reso=reso_list[0],
                 sigma_thresh=args.density_thresh,
@@ -442,12 +446,8 @@ if args.init_from_point_cloud:
                 cameras=resample_cameras if args.thresh_type == 'weight' else None,
                 max_elements=args.max_grid_elements)
 
-    del pc_orig
-    del pc
-    del pc_keep_points
-
 print('After point cloud init')
-garbage_collect_and_print_usage()
+garbage_collect_and_print_usage(only_cuda=True)
 
 if WANDB_ON:
   wandb.log({
