@@ -503,3 +503,6 @@ def garbage_collect_and_print_usage(only_cuda = False, top_n = 20):
     objects = sorted(objects, reverse = True)
     for (size, obj_type, is_cuda) in objects[:top_n]:
         print(f'Object: {obj_type}, Is cuda: {is_cuda}, Size: {size}')
+
+    if len(objects) > top_n:
+        print(f'Shown top {top_n} objects, {len(objects) - top_n} hidden.')
