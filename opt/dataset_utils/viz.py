@@ -10,6 +10,8 @@ from point_cloud import Pointcloud, stack_pointclouds
 from fire import Fire
 from abstract_viz import AbstractViz
 from pointcloud_registration import load_frame_data_from_dataset
+import sys
+print(sys.path)
 
 MAX_POINTCLOUD_POINTS = 1000000
 
