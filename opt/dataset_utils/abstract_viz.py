@@ -3,7 +3,7 @@ import os
 import json
 from functools import partial
 import json
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 import numpy as np
 import open3d as o3d
 import open3d.visualization.gui as gui
@@ -11,6 +11,11 @@ import open3d.visualization.rendering as rendering
 import os
 from point_cloud import Pointcloud_DEPRECATED
 from abc import ABC
+
+def shift_int_slider(slider, value: int, callback: Optional[Callable[[gui.Slider, int], None]] = None) -> None:
+    slider.int_value = min(max(slider.int_value + value, int(slider.get_minimum_value)), int(slider.get_maximum_value))
+    if callback is not None:
+        callback(slider, slider.int_value)
 
 
 class AbstractViz(ABC):
@@ -46,34 +51,6 @@ class AbstractViz(ABC):
         self._scene.setup_camera(60, bbox, [0, 0, 0])
 
         self.materials = self.Materials()
-
-
-        # self.scene.scene.add_geometry("grid", self.coordinates_grid, grid_material)
-        # if grid_dir is not None:
-        #     print("Adding grid ...")
-        #     with open(grid_dir, 'rb') as f:
-        #         grid = np.load(f, allow_pickle=True).item()
-        #     self._show_grid(grid, line_material)
-
-
-        # print("Adding cameras geometry...")
-        # for transform_name, geometry in self.camera_geometries.items():
-        #     self.scene.scene.add_geometry(f"cam_{transform_name}", geometry, line_material)
-        #     self.scene.scene.show_geometry(f"cam_{transform_name}", False)
-
-        # self.pointclouds: Dict[str, Pointcloud_DEPRECATED] = {}
-
-        # for transform_name in transforms_files:
-        #     print(f"Adding {transform_name} pointcloud geometry...")
-        #     pointcloud = Pointcloud_DEPRECATED.from_dataset(dataset_dir, [transform_name])
-        #     self.pointclouds[transform_name] = pointcloud
-        #     self.scene.scene.add_geometry(f"pcd_{transform_name}", pointcloud.get_pruned_pointcloud(MAX_POINTCLOUD_POINTS).to_open3d(), self.pcd_material)
-        #     self.scene.scene.show_geometry(f"pcd_{transform_name}", False)
-
-
-        # print("Adding unit cube geometry...")
-        # self.scene.scene.add_geometry("unit_cube", self._get_unit_cube_mesh(radius=1.), line_material)
-        # print("rendering now!")
 
 
         self._window.set_on_layout(self._on_layout)
@@ -119,6 +96,13 @@ class AbstractViz(ABC):
 
         self.add_settings_panel_child(panel_section, checkbox)
 
+    def _get_panel_section(self, panel_section: str) -> gui.CollapsableVert:
+        if panel_section not in self._settings_panel_sections:
+            raise ValueError(f"Section {panel_section} does not exist yet. Add it with `add_section` method")
+
+        section = self._settings_panel_sections[panel_section]
+        return section
+
     def add_settings_panel_section(self, panel_section: str, label: str) -> gui.CollapsableVert:
         if panel_section in self._settings_panel_sections:
             raise ValueError(f"Section '{panel_section}' already exists")
@@ -130,13 +114,36 @@ class AbstractViz(ABC):
         return section
 
     def add_settings_panel_child(self, panel_section: str, child):
-        if panel_section not in self._settings_panel_sections:
-            raise ValueError(f"Section {panel_section} does not exist yet. Add it with `add_section` method")
-
-        section = self._settings_panel_sections[panel_section]
-        assert section is not None
-
+        section = self._get_panel_section(panel_section)
         section.add_child(child)
+
+    def add_slider_selection(self, panel_section: str, limits: Tuple[int, int], callback: Callable[[gui.Slider, int], None]):
+        slider_row = gui.Horiz(0.25 * self._settings_em)  # type: ignore
+        slider = gui.Slider(gui.Slider.INT)  # type: ignore
+        slider.set_limits(0, 1)
+        slider.set_on_value_changed(partial(callback, slider))
+
+        def decrement_slider():
+            slider.int_value = max(slider.int_value - 1, int(slider.get_minimum_value))
+            callback(slider, slider.int_value)
+
+        def increment_slider():
+            slider.int_value = min(slider.int_value + 1, int(slider.get_maximum_value))
+            callback(slider, slider.int_value)
+
+        minus_button = gui.Button("-")
+        minus_button.set_on_clicked(partial(shift_int_slider, slider, -1, callback))
+
+        plus_button = gui.Button("+")
+        plus_button.set_on_clicked(partial(shift_int_slider, slider, 1, callback))
+
+        slider_row.add_child(minus_button)
+        slider_row.add_child(slider)
+        slider_row.add_child(plus_button)
+
+        self.add_settings_panel_child(panel_section, slider_row)
+
+        return slider
 
 
     def _show_grid(self, grid: Dict[str, np.ndarray], line_material) -> None:
@@ -228,7 +235,6 @@ class AbstractViz(ABC):
         self._settings_panel_sections = {}
 
 
-
     @staticmethod
     def _get_camera_control_button(name: str, camera_mode, scene):
         button = gui.Button(name)  # type: ignore
@@ -236,104 +242,3 @@ class AbstractViz(ABC):
         button.vertical_padding_em = 0
         button.set_on_clicked(lambda: scene.set_view_controls(camera_mode))
         return button
-
-    @staticmethod
-    def _get_unit_cube_mesh(radius: int = 0.5,
-                            translation: Optional[Tuple[float, float, float]] = None,
-                            colour: Tuple[float, float, float] = (1., 0., 0.)):
-        unit_cube = o3d.geometry.LineSet()
-        cube_edges = [
-            [radius, radius, radius],
-            [radius, radius, -radius],
-            [radius, -radius, radius],
-            [radius, -radius, -radius],
-            [-radius, radius, radius],
-            [-radius, radius, -radius],
-            [-radius, -radius, radius],
-            [-radius, -radius, -radius],
-        ]
-
-        if translation is not None:
-            translated_edges = []
-            for (ex, ey, ez) in cube_edges:
-                translated_edges.append([ex + translation[0],
-                                         ey + translation[1],
-                                         ez + translation[2]])
-            cube_edges = translated_edges
-
-
-        # get vertices of a unit cube with center at origin
-        unit_cube.points = o3d.utility.Vector3dVector(cube_edges)
-
-        unit_cube.lines = o3d.utility.Vector2iVector([
-            [0, 1], [0, 2], [0, 4], [1, 3], [1, 5], [2, 3], [2, 6], [3, 7], [4, 5], [4, 6], [5, 7], [6, 7]
-        ])
-        unit_cube.paint_uniform_color(colour)
-
-        return unit_cube
-
-    def _on_check(self, is_checked: bool, transform_name: str):
-        self.scene.scene.show_geometry(f"cam_{transform_name}", is_checked)
-
-    def _on_frame_by_frame_select(self, idx):
-        pointcloud_key = list(self.pointclouds.keys())[idx]
-        pointcloud = self.pointclouds[pointcloud_key]
-        n_frames = pointcloud._n_frames
-        assert n_frames is not None
-        self.frame_by_frame_slider_1.set_limits(0, n_frames - 1)
-        self.frame_by_frame_slider_1.int_value = 0
-        self.frame_by_frame_slider_2.set_limits(0, n_frames - 1)
-        self.frame_by_frame_slider_2.int_value = 0
-
-        self._current_slider_pointcloud_idx = idx
-
-        self._on_frame_by_frame_slider_change(0, 'first_slider_object')
-        self._on_frame_by_frame_slider_change(0, 'second_slider_object')
-
-    def _on_frame_by_frame_slider_change(self, value, object_name: str):
-        if self._current_slider_pointcloud_idx is None:
-            return
-
-        value = int(value)
-        pointcloud_key = list(self.pointclouds.keys())[self._current_slider_pointcloud_idx]
-        pointcloud = self.pointclouds[pointcloud_key]
-        self.scene.scene.remove_geometry(f"{object_name}")
-
-        self.scene.scene.add_geometry(f"{object_name}", pointcloud.from_frame(value).to_open3d(), self.pcd_material)
-
-    def _forward_slider_pointcloud(self, object_name: str):
-        if self._current_slider_pointcloud_idx is None:
-            return
-
-        pointcloud_key = list(self.pointclouds.keys())[self._current_slider_pointcloud_idx]
-        pointcloud = self.pointclouds[pointcloud_key]
-        n_frames = pointcloud._n_frames
-        assert n_frames is not None
-
-        slider = self.frame_by_frame_slider_1 if object_name == 'first_slider_object' else self.frame_by_frame_slider_2
-        slider.int_value = min(n_frames-1, slider.int_value + 1)  # set the value
-        self._on_frame_by_frame_slider_change(min(n_frames-1, slider.int_value + 1), object_name)
-
-    def _rewind_slider_pointcloud(self, object_name: str):
-        if self._current_slider_pointcloud_idx is None:
-            return
-
-        slider = self.frame_by_frame_slider_1 if object_name == 'first_slider_object' else self.frame_by_frame_slider_2
-        slider.int_value = max(0, slider.int_value - 1)  # set the value
-        self._on_frame_by_frame_slider_change(max(0, slider.int_value - 1), object_name)
-
-    def _forward_slider_pointclouds(self):
-        self._forward_slider_pointcloud('first_slider_object')
-        self._forward_slider_pointcloud('second_slider_object')
-
-    def _rewind_slider_pointclouds(self):
-        self._rewind_slider_pointcloud('first_slider_object')
-        self._rewind_slider_pointcloud('second_slider_object')
-
-    def _on_check_pcd(self, is_checked: bool, transform_name: str):
-        self.scene.scene.show_geometry(f"pcd_{transform_name}", is_checked)
-
-        print(transform_name, is_checked)
-
-    def _on_check_unit_cube(self, is_checked: bool):
-        self.scene.scene.show_geometry("unit_cube", is_checked)

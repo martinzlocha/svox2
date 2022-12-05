@@ -8,7 +8,7 @@ import open3d.visualization.rendering as rendering
 import os
 from point_cloud import Pointcloud, stack_pointclouds
 from fire import Fire
-from abstract_viz import AbstractViz
+from abstract_viz import AbstractViz, shift_int_slider
 from pointcloud_registration import load_frame_data_from_dataset
 import sys
 print(sys.path)
@@ -183,48 +183,30 @@ class VizApplication(AbstractViz):
         em = self._settings_em
         frame_by_frame = self.add_settings_panel_section("replay_capture", "Replay Capture")
 
-        # frame_by_frame = gui.CollapsableVert("Frame by Frame", 0.25 * em,
-        #                                  gui.Margins(em, 0, 0, 0))
-
         rb = gui.RadioButton(gui.RadioButton.VERT)
         rb.set_items(list(map(str, self.pointclouds.keys())))
         rb.set_on_selection_changed(self._on_frame_by_frame_select)
-        frame_by_frame.add_child(rb)
+        # frame_by_frame.add_child(rb)
+        self.add_settings_panel_child("replay_capture", rb)
         self._current_slider_pointcloud_idx = None
 
-        def get_slider(object_name):
-            slider_row = gui.Horiz(0.25 * em)
-            slider = gui.Slider(gui.Slider.INT)
-            slider.set_limits(0, 1)
-            slider.set_on_value_changed(partial(self._on_frame_by_frame_slider_change, object_name=object_name))
+        self.frame_by_frame_slider_1 = self.add_slider_selection("replay_capture", (0, 1), partial(self._on_frame_by_frame_slider_change, object_name='first_slider_object'))
+        self.frame_by_frame_slider_2 = self.add_slider_selection("replay_capture", (0, 1), partial(self._on_frame_by_frame_slider_change, object_name='second_slider_object'))
 
-            minus_button = gui.Button("-")
-            minus_button.set_on_clicked(partial(self._rewind_slider_pointcloud, object_name=object_name))
 
-            plus_button = gui.Button("+")
-            plus_button.set_on_clicked(partial(self._forward_slider_pointcloud, object_name=object_name))
-
-            slider_row.add_child(minus_button)
-            slider_row.add_child(slider)
-            slider_row.add_child(plus_button)
-
-            return slider_row, slider
-
-        slider_row_1, self.frame_by_frame_slider_1 = get_slider('first_slider_object')
-        slider_row_2, self.frame_by_frame_slider_2 = get_slider('second_slider_object')
-
-        frame_by_frame.add_child(slider_row_1)
-        frame_by_frame.add_child(slider_row_2)
+        def shift_sliders(value: int):
+            shift_int_slider(self.frame_by_frame_slider_1, value, partial(self._on_frame_by_frame_slider_change, object_name='first_slider_object'))
+            shift_int_slider(self.frame_by_frame_slider_2, value, partial(self._on_frame_by_frame_slider_change, object_name='second_slider_object'))
 
 
         forward_button = gui.Button(">>")
         forward_button.horizontal_padding_em = 0.5
         forward_button.vertical_padding_em = 0
-        forward_button.set_on_clicked(self._forward_slider_pointclouds)
+        forward_button.set_on_clicked(partial(shift_sliders, 1))
         rewind_button = gui.Button("<<")
         rewind_button.horizontal_padding_em = 0.5
         rewind_button.vertical_padding_em = 0
-        rewind_button.set_on_clicked(self._rewind_slider_pointclouds)
+        rewind_button.set_on_clicked(partial(shift_sliders, -1))
 
         row = gui.Horiz(0.25 * em)
         row.add_stretch()
@@ -232,10 +214,11 @@ class VizApplication(AbstractViz):
         row.add_child(forward_button)
         row.add_stretch()
 
-        frame_by_frame.add_child(row)
+        # frame_by_frame.add_child(row)
+        self.add_settings_panel_child("replay_capture", row)
 
     @staticmethod
-    def _get_unit_cube_mesh(radius: int = 0.5,
+    def _get_unit_cube_mesh(radius: float = 0.5,
                             translation: Optional[Tuple[float, float, float]] = None,
                             colour: Tuple[float, float, float] = (1., 0., 0.)):
         unit_cube = o3d.geometry.LineSet()
@@ -287,10 +270,10 @@ class VizApplication(AbstractViz):
         self.frame_by_frame_slider_1.int_value = first_frame_value
         self.frame_by_frame_slider_2.int_value = second_frame_value
 
-        self._on_frame_by_frame_slider_change(first_frame_value, 'first_slider_object')
-        self._on_frame_by_frame_slider_change(second_frame_value, 'second_slider_object')
+        self._on_frame_by_frame_slider_change(self.frame_by_frame_slider_1, first_frame_value, 'first_slider_object')
+        self._on_frame_by_frame_slider_change(self.frame_by_frame_slider_2, second_frame_value, 'second_slider_object')
 
-    def _on_frame_by_frame_slider_change(self, value, object_name: str):
+    def _on_frame_by_frame_slider_change(self, slider, value, object_name: str):
         if self._current_slider_pointcloud_idx is None:
             return
 
@@ -300,27 +283,6 @@ class VizApplication(AbstractViz):
         self._scene.scene.remove_geometry(f"{object_name}")
 
         self._scene.scene.add_geometry(f"{object_name}", pointcloud[value].as_open3d(), self.materials.pointcloud)
-
-    def _forward_slider_pointcloud(self, object_name: str):
-        if self._current_slider_pointcloud_idx is None:
-            return
-
-        pointcloud_key = list(self.pointclouds.keys())[self._current_slider_pointcloud_idx]
-        pointcloud = self.pointclouds[pointcloud_key]
-        n_frames = len(pointcloud)
-        assert n_frames is not None
-
-        slider = self.frame_by_frame_slider_1 if object_name == 'first_slider_object' else self.frame_by_frame_slider_2
-        slider.int_value = min(n_frames-1, slider.int_value + 1)  # set the value
-        self._on_frame_by_frame_slider_change(slider.int_value, object_name)
-
-    def _rewind_slider_pointcloud(self, object_name: str):
-        if self._current_slider_pointcloud_idx is None:
-            return
-
-        slider = self.frame_by_frame_slider_1 if object_name == 'first_slider_object' else self.frame_by_frame_slider_2
-        slider.int_value = max(0, slider.int_value - 1)  # set the value
-        self._on_frame_by_frame_slider_change(slider.int_value, object_name)
 
     def _forward_slider_pointclouds(self):
         self._forward_slider_pointcloud('first_slider_object')
