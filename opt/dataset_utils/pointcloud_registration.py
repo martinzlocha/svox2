@@ -25,7 +25,7 @@ from utils import (depth_file_path_from_frame,
                    load_depth_file,
                    get_rays)
 from point_cloud import Pointcloud
-from aabb_iou import aabb_intersection_ratios
+from aabb_iou import aabb_intersection_ratios, aabb_intersection_ratios_open3d
 
 
 
@@ -360,8 +360,8 @@ def pairwise_registration(source, target, trans_init, max_correspondence_distanc
             treg.ICPConvergenceCriteria(0.000001, 0.000001, 20),
             treg.ICPConvergenceCriteria(0.000001, 0.000001, 10)
         ]
-    voxel_sizes = o3d.utility.DoubleVector([0.2, 0.09, 0.03, 0.008, 0.002])
-    max_correspondence_distances = o3d.utility.DoubleVector([0.6, 0.2, 0.09, 0.04, 0.01])
+    voxel_sizes = o3d.utility.DoubleVector([0.1, 0.07, 0.03, 0.008, 0.003])
+    max_correspondence_distances = o3d.utility.DoubleVector([0.3, 0.1, 0.07, 0.024, 0.01])
 
     mu, sigma = 0, 0.5  # mean and standard deviation
     estimation = treg.TransformationEstimationPointToPlane(
@@ -425,10 +425,11 @@ def should_add_edge_intersection(pcd1: o3d.t.geometry.PointCloud,
 
     bounding_box1 = pcd1.get_axis_aligned_bounding_box()
     bounding_box2 = pcd2.get_axis_aligned_bounding_box()
-    min_max_1 = np.stack([bounding_box1.get_min_bound().cpu().numpy(), bounding_box1.get_max_bound().cpu().numpy()], axis=0)  # Shape: (2, 3)
-    min_max_2 = np.stack([bounding_box2.get_min_bound().cpu().numpy(), bounding_box2.get_max_bound().cpu().numpy()], axis=0)  # Shape: (2, 3)
+    # min_max_1 = np.stack([bounding_box1.get_min_bound().cpu().numpy(), bounding_box1.get_max_bound().cpu().numpy()], axis=0)  # Shape: (2, 3)
+    # min_max_2 = np.stack([bounding_box2.get_min_bound().cpu().numpy(), bounding_box2.get_max_bound().cpu().numpy()], axis=0)  # Shape: (2, 3)
 
-    iou, aabb1_intersection_ratio, aabb2_intersection_ratio = aabb_intersection_ratios(min_max_1, min_max_2)
+    # iou, aabb1_intersection_ratio, aabb2_intersection_ratio = aabb_intersection_ratios(min_max_1, min_max_2)
+    iou, aabb1_intersection_ratio, aabb2_intersection_ratio = aabb_intersection_ratios_open3d(bounding_box1, bounding_box2)
 
     loop_should_be_closed = iou > iou_threshold or aabb1_intersection_ratio > iou_threshold or aabb2_intersection_ratio > iou_threshold
 
@@ -466,13 +467,13 @@ def run_full_icp(dataset_dir: str,
     odometry = np.identity(4)
     pose_graph.nodes.append(o3d.pipelines.registration.PoseGraphNode(odometry))
     n_pcds = len(pcds)
-    n_pcds = 100 # debug
+    n_pcds = 400 # debug
     print('Building pose graph ...')
     pairwise_registrations = []
 
     for source_id in tqdm(range(n_pcds)):
         source_pcd = pcds[source_id].pointcloud.as_open3d_tensor(estimate_normals=True, device=device)
-        source_trans_inv = invert_transformation_matrix(pcds[source_id].transform_matrix)
+        # source_trans_inv = invert_transformation_matrix(pcds[source_id].transform_matrix)
         last_loop_closure = source_id
         for target_id in range(source_id+1, n_pcds, forward_frame_step_size):
             target_pcd = pcds[target_id].pointcloud.as_open3d_tensor(estimate_normals=True, device=device)
