@@ -1,4 +1,5 @@
 import open3d as o3d
+
 if o3d.__DEVICE_API__ == 'cuda':
     import open3d.cuda.pybind.t.pipelines.registration as treg
     device = o3d.core.Device("CUDA:0")
@@ -9,7 +10,7 @@ import copy
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, List
+from typing import Dict, List, Literal, Union
 import itertools
 
 import imageio.v2 as imageio
@@ -25,7 +26,7 @@ from utils import (depth_file_path_from_frame,
                    get_rays)
 from point_cloud import Pointcloud
 from aabb_iou import aabb_intersection_ratios
-from multiprocessing import Pool
+
 
 
 def invert_transformation_matrix(matrix):
@@ -38,8 +39,11 @@ def invert_transformation_matrix(matrix):
                                  axis=0)
     return inverted_matrix
 
+
 class FrameData:
     def __init__(self, frame_data: Dict, dataset_dir: str, camera_angle_x: float):
+        self.frame_data = frame_data
+        self.dataset_dir = dataset_dir
         self.camera_angle_x = camera_angle_x
 
         rgb_file_path = img_file_path_from_frame(frame_data, dataset_dir)
@@ -55,6 +59,17 @@ class FrameData:
                                                            self.camera_angle_x)
 
         self._matching = None
+
+    def as_dict(self) -> Dict:
+        return {
+            "frame_data": self.frame_data,
+            "dataset_dir": self.dataset_dir,
+            "camera_angle_x": self.camera_angle_x,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> "FrameData":
+        return cls(**data)
 
     def transform_(self, transform_matrix: np.ndarray) -> None:
         """
@@ -112,6 +127,43 @@ class ParentFrame:
             np_transform = registration_icp.transformation.numpy()
             transforms.append(np_transform @ self.transform_matrix)
         return transforms
+
+    def as_dict(self) -> Dict:
+        return {
+            "frames": [frame.as_dict() for frame in self.frames],
+            "transform_matrix": self.transform_matrix.tolist(),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> "ParentFrame":
+        frames = [FrameData(**frame_data) for frame_data in data["frames"]]
+        parent_frame = cls(frames)
+        parent_frame.transform_matrix = np.array(data["transform_matrix"])
+        return parent_frame
+
+
+class PairwiseRegistration:
+    def __init__(self, source: ParentFrame, target: ParentFrame, transform_matrix: np.ndarray, edge_type: Literal["loop", "odometry"]):
+        self.source = source
+        self.target = target
+        self.transform_matrix = transform_matrix
+        self.edge_type = edge_type
+
+    def as_dict(self) -> Dict:
+        return {
+            "source": self.source.as_dict(),
+            "target": self.target.as_dict(),
+            "transform_matrix": self.transform_matrix.tolist(),
+            "type": self.edge_type,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> "PairwiseRegistration":
+        source = ParentFrame.from_dict(data["source"])
+        target = ParentFrame.from_dict(data["target"])
+        transform_matrix = np.array(data["transform_matrix"])
+        edge_type = data["type"]
+        return cls(source, target, transform_matrix, edge_type)
 
 
 def draw_registration_result(source, target, transformation):
@@ -394,8 +446,10 @@ def run_full_icp(dataset_dir: str,
     odometry = np.identity(4)
     pose_graph.nodes.append(o3d.pipelines.registration.PoseGraphNode(odometry))
     n_pcds = len(pcds)
-    # n_pcds = 900  # debug
+    n_pcds = 100  # debug
     print('Building pose graph ...')
+    pairwise_registrations = []
+
     for source_id in tqdm(range(n_pcds)):
         source_pcd = pcds[source_id].pointcloud.as_open3d_tensor(estimate_normals=True, device=device)
         source_trans_inv = invert_transformation_matrix(pcds[source_id].transform_matrix)
@@ -425,6 +479,9 @@ def run_full_icp(dataset_dir: str,
                                                              transformation_icp,
                                                              information_icp,
                                                              uncertain=False))
+
+                registration_res = PairwiseRegistration(pcds[source_id], pcds[target_id], transformation_icp, "odometry")
+                pairwise_registrations.append(registration_res)
             else:  # loop closure case
                 if transformation_icp is None or information_icp is None:
                     continue
@@ -436,6 +493,14 @@ def run_full_icp(dataset_dir: str,
                                                              transformation_icp,
                                                              information_icp,
                                                              uncertain=True))
+
+                registration_res = PairwiseRegistration(pcds[source_id], pcds[target_id], transformation_icp, "loop")
+                pairwise_registrations.append(registration_res)
+
+    pairwise_registrations = list(map(lambda x: x.as_dict(), pairwise_registrations))
+    with open(os.path.join(dataset_dir, 'pairwise_registrations.json'), 'w') as f:
+        json.dump(pairwise_registrations, f, indent=4)
+
     print("Optimizing pose graph ...")
     option = o3d.pipelines.registration.GlobalOptimizationOption(
             max_correspondence_distance=max_correspondence_distance,
@@ -554,6 +619,7 @@ def run_sift(dataset_dir: str,
 
         train_json['frames'] = train_json['frames'][:n_pcds]  # debug
         json.dump(train_json, f, indent=4)
+
 
 def main(dataset_dir: str):
     run_full_icp(dataset_dir)
