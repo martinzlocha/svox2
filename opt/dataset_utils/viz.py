@@ -4,7 +4,6 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 import numpy as np
 import open3d as o3d
 import open3d.visualization.gui as gui
-import open3d.visualization.rendering as rendering
 import os
 from point_cloud import Pointcloud, stack_pointclouds
 from fire import Fire
