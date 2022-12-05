@@ -67,27 +67,33 @@ class RegistrationViz(AbstractViz):
 
         self.add_geometry('pairwise_registration_pcd_source', registration.source.pointcloud.as_open3d())
         # self._scene.scene.set_geometry_transform('pairwise_registration_pcd_source', registration.transform_matrix)
-        self.add_geometry('pairwise_registration_pcd_target', registration.source.pointcloud.as_open3d())
+        self.add_geometry('pairwise_registration_pcd_target', registration.target.pointcloud.as_open3d())
 
         self.label_source_id.text = f'Source ID: {registration.source.frames[0].frame_data["image_id"]}'
         self.label_target_id.text = f'Target ID: {registration.target.frames[0].frame_data["image_id"]}'
         self.label_type.text = f'Type: {registration.edge_type}'
         # self.update_transform_matrix_label(registration.transform_matrix)
 
-        self.iteration_slider.set_limits(0, len(registration.iteration_data) - 1)
-        self.iteration_slider.int_value = len(registration.iteration_data) - 1
+        self.iteration_slider.set_limits(0, len(registration.iteration_data))
+        self.iteration_slider.int_value = len(registration.iteration_data)
 
-        self.change_iteration_slider(self.iteration_slider, len(registration.iteration_data) - 1)
+        self.change_iteration_slider(self.iteration_slider, len(registration.iteration_data))
 
 
     def change_iteration_slider(self, slider, value: int):
         registration = self.pairwise_registrations[self.slider.int_value]
-        iteration_data = registration.iteration_data[value]
+        iteration_data = ([{
+            "transformation": np.eye(4),
+            "inlier_rmse": -1,
+            "scale_index": -1,
+            "fitness": -1,
+            "scale_iteration_index": -1,
+            "iteration_index": -1,
+        }] + registration.iteration_data)[value]
 
         # print(iteration_data)
 
         self._scene.scene.set_geometry_transform('pairwise_registration_pcd_source', iteration_data["transformation"])
-
         self.update_transform_matrix_label(iteration_data["transformation"])
 
 
