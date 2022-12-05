@@ -61,7 +61,7 @@ setup(
     long_description='PyTorch sparse voxel volume extension, including custom CUDA kernels',
     ext_modules=ext_modules,
     setup_requires=['pybind11>=2.5.0'],
-    packages=['svox2', 'svox2.csrc', 'dataset_utils'],
+    packages=['svox2', 'svox2.csrc'],
     cmdclass={'build_ext': BuildExtension},
     zip_safe=False,
 )
