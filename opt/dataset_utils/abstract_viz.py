@@ -80,6 +80,12 @@ class AbstractViz(ABC):
         self._scene.scene.add_geometry(name, geometry, material)
         self._valid_geometry.append(name)
 
+    def remove_geometry(self, name: str) -> None:
+        """Remove geometry from the scene
+        :param name: name of the geometry
+        """
+        self._scene.scene.remove_geometry(name)
+
     def add_show_checkbox_for_geometry(self, geometry_name: str, panel_section: str, label: str, default_checked: bool = True):
         """Adds checkbox to the corresponding section to show and hide the geometry by name.
         """
@@ -120,16 +126,11 @@ class AbstractViz(ABC):
     def add_slider_selection(self, panel_section: str, limits: Tuple[int, int], callback: Callable[[gui.Slider, int], None]):
         slider_row = gui.Horiz(0.25 * self._settings_em)  # type: ignore
         slider = gui.Slider(gui.Slider.INT)  # type: ignore
-        slider.set_limits(0, 1)
-        slider.set_on_value_changed(partial(callback, slider))
-
-        def decrement_slider():
-            slider.int_value = max(slider.int_value - 1, int(slider.get_minimum_value))
-            callback(slider, slider.int_value)
-
-        def increment_slider():
-            slider.int_value = min(slider.int_value + 1, int(slider.get_maximum_value))
-            callback(slider, slider.int_value)
+        slider.set_limits(limits[0], limits[1])
+        def _callback(value: float):
+            value = int(value)
+            callback(slider, value)
+        slider.set_on_value_changed(_callback)
 
         minus_button = gui.Button("-")
         minus_button.set_on_clicked(partial(shift_int_slider, slider, -1, callback))
