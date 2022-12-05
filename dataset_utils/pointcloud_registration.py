@@ -16,8 +16,13 @@ import imageio.v2 as imageio
 import numpy as np
 from fire import Fire
 from tqdm import tqdm
+import torch
+import cv2
+import matplotlib.pyplot as plt
 from utils import (depth_file_path_from_frame,
-                                 img_file_path_from_frame, load_depth_file)
+                   img_file_path_from_frame,
+                   load_depth_file,
+                   get_rays)
 from point_cloud import Pointcloud
 from aabb_iou import aabb_intersection_ratios
 from multiprocessing import Pool
@@ -131,7 +136,11 @@ def load_frame_data_from_dataset(dataset_dir: str,
 
     frames = transforms["frames"]
     with ThreadPoolExecutor() as executor:
-        frame_data = list(tqdm(executor.map(lambda frame: FrameData(frame, dataset_dir, camera_angle_x), frames), total=len(frames)))
+        frame_data = list(tqdm(executor.map(lambda frame: FrameData(frame,
+                                                                    dataset_dir,
+                                                                    camera_angle_x),
+                                            frames),
+                                total=len(frames)))
 
     return frame_data
 
@@ -464,6 +473,87 @@ def run_full_icp(dataset_dir: str,
         train_json['frames'] = train_json['frames'][:n_pcds]  # debug
         json.dump(train_json, f, indent=4)
 
+def get_transformation_mat(source, target, steps=200):
+    R = torch.nn.Parameter(torch.eye(3))
+    t = torch.nn.Parameter(torch.zeros(3))
+    loss = torch.nn.MSELoss()
+    source = torch.Tensor(source)
+    target = torch.Tensor(target)
+    optimizer = torch.optim.Adam([R, t], lr=0.001)
+    for _ in range(steps):
+        optimizer.zero_grad()
+        transformed_source = R @ torch.transpose(source, 0, 1) + t[..., None]
+        loss_val = loss(torch.transpose(transformed_source, 0, 1), target)
+        loss_val.backward()
+        optimizer.step()
+    print('loss is', loss_val.item())
+    T = np.concatenate([R.data.numpy(),
+                        t.data.numpy()[..., None]], axis=-1)
+    T = np.concatenate([T, np.array([[0., 0., 0., 1.]])], axis=0)
+    return T
+
+def run_sift(dataset_dir: str,
+             top_match_limit: int = 200) -> None:
+    n_pcds = 100
+    transforms_train = os.path.join(dataset_dir,
+                                    'transforms_train.json')
+    with open(transforms_train, 'r') as f:
+        train_json = json.load(f)
+
+    frame_data = load_frame_data_from_dataset(dataset_dir, transforms_train)
+    new_transforms = [frame_data[0].transform_matrix]
+    orb = cv2.SIFT_create()
+    kp = orb.detect(frame_data[0].rgb, None)
+    kp, des = orb.compute(frame_data[0].rgb, kp)
+    descriptors = [(kp, des)]
+    matcher = cv2.BFMatcher(cv2.NORM_L2, crossCheck=True)
+    odometry = new_transforms[0]
+
+    for i in tqdm(range(1, n_pcds)):
+        frame = frame_data[i]
+        rgb_image = frame.rgb
+
+        # Get and update ORB descriptors
+        kp = orb.detect(rgb_image, None)
+        kp, des = orb.compute(rgb_image, kp)
+        past_kp, past_des = descriptors[-1]
+        descriptors.append((past_kp, past_des))
+        matches = matcher.match(des, past_des)
+        matches = sorted(matches, key = lambda x: x.distance)[:top_match_limit]
+        source_points, target_points = [], []
+        source_pcd_points = np.reshape(frame_data[i - 1].pointcloud.as_numpy()[0], rgb_image.shape)
+        target_pcd_points = np.reshape(frame.pointcloud.as_numpy()[0], rgb_image.shape)
+        """
+        cvimg = cv2.drawMatches(rgb_image,
+                                kp,
+                                frame_data[i - 1].rgb,
+                                past_kp,
+                                matches[:10],
+                                None,
+                                flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+        """
+        for match in matches:
+            source_point = past_kp[match.trainIdx].pt
+            target_point = kp[match.queryIdx].pt
+            source_points.append(source_pcd_points[int(source_point[1]),
+                                                   int(source_point[0])])
+            target_points.append(target_pcd_points[int(target_point[1]),
+                                                   int(target_point[0])])
+        source_points = np.stack(source_points, axis=0)
+        target_points = np.stack(target_points, axis=0)
+        T = get_transformation_mat(source_points, target_points)
+        odometry = T @ odometry
+        new_transforms.append(odometry)
+
+
+    print("Writing results ...")
+    transforms_train_shifted = os.path.join(dataset_dir, 'transforms_train_original_shifted.json')
+    with open(transforms_train_shifted, 'w') as f:
+        for i, (transform, json_frame) in enumerate(zip(new_transforms, train_json['frames'])):
+            json_frame['transform_matrix'] = transform.tolist()
+
+        train_json['frames'] = train_json['frames'][:n_pcds]  # debug
+        json.dump(train_json, f, indent=4)
 
 def main(dataset_dir: str):
     run_full_icp(dataset_dir)
