@@ -143,18 +143,30 @@ class ParentFrame:
 
 
 class PairwiseRegistration:
-    def __init__(self, source: ParentFrame, target: ParentFrame, transform_matrix: np.ndarray, edge_type: Literal["loop", "odometry"]):
+    def __init__(self, source: ParentFrame, target: ParentFrame, transform_matrix: np.ndarray, edge_type: Literal["loop", "odometry"], iteration_data: List[Dict]):
         self.source = source
         self.target = target
         self.transform_matrix = transform_matrix
         self.edge_type = edge_type
+        self.iteration_data = iteration_data
 
     def as_dict(self) -> Dict:
+        iteration_data = self.iteration_data
+        for data in iteration_data:
+            data["transformation"] = data["transformation"].cpu().numpy().tolist()
+            data["inlier_rmse"] = data["inlier_rmse"].cpu().item()
+            data["scale_index"] = data["scale_index"].cpu().item();
+            data["fitness"] = data["fitness"].cpu().item()
+            data["scale_iteration_index"] = data["scale_iteration_index"].cpu().item()
+            data["iteration_index"] = data["iteration_index"].cpu().item();
+
+
         return {
             "source": self.source.as_dict(),
             "target": self.target.as_dict(),
             "transform_matrix": self.transform_matrix.tolist(),
             "type": self.edge_type,
+            "iteration_data": iteration_data,
         }
 
     @classmethod
@@ -163,7 +175,11 @@ class PairwiseRegistration:
         target = ParentFrame.from_dict(data["target"])
         transform_matrix = np.array(data["transform_matrix"])
         edge_type = data["type"]
-        return cls(source, target, transform_matrix, edge_type)
+        iteration_data = data["iteration_data"]
+        for data in iteration_data:
+            data["transformation"] = np.array(data["transformation"])
+
+        return cls(source, target, transform_matrix, edge_type, iteration_data)
 
 
 def draw_registration_result(source, target, transformation):
@@ -331,6 +347,10 @@ def run_pairwise_icp(dataset_dir: str):
         json.dump(train_json, f, indent=4)
 
 def pairwise_registration(source, target, trans_init, max_correspondence_distance, voxel_size=0.01):
+    iteration_data = []
+    def iteration_callback(data: Dict):
+        iteration_data.append(data)
+
     criteria_list = [
             treg.ICPConvergenceCriteria(relative_fitness=0.001,
                                         relative_rmse=0.001,
@@ -355,14 +375,14 @@ def pairwise_registration(source, target, trans_init, max_correspondence_distanc
                                 criteria_list,
                                 max_correspondence_distances,
                                 trans_init,
-                                estimation)
+                                estimation, iteration_callback)
     except RuntimeError as e:
         print(e)
-        return None, None
+        return None, None, None
 
     if registration_icp.fitness == 0 and registration_icp.inlier_rmse == 0:
         # no correspondence
-        return None, None
+        return None, None, None
     transformation_icp = registration_icp.transformation.numpy()
     try:
         information_icp = treg.get_information_matrix(source,
@@ -371,7 +391,7 @@ def pairwise_registration(source, target, trans_init, max_correspondence_distanc
                                                       transformation_icp).numpy()
     except RuntimeError as e:
         information_icp = np.eye(6)
-    return transformation_icp, information_icp
+    return transformation_icp, information_icp, iteration_data
 
 
 def has_aabb_one_dimensional_overlap(segment1: np.ndarray, segment2: np.ndarray) -> bool:
@@ -446,7 +466,7 @@ def run_full_icp(dataset_dir: str,
     odometry = np.identity(4)
     pose_graph.nodes.append(o3d.pipelines.registration.PoseGraphNode(odometry))
     n_pcds = len(pcds)
-    n_pcds = 100  # debug
+    n_pcds = 100 # debug
     print('Building pose graph ...')
     pairwise_registrations = []
 
@@ -461,7 +481,7 @@ def run_full_icp(dataset_dir: str,
             target_trans = pcds[target_id].transform_matrix
             # trans_init = target_trans @ source_trans_inv
             trans_init = np.eye(4)
-            transformation_icp, information_icp = pairwise_registration(source_pcd,
+            transformation_icp, information_icp, iteration_data = pairwise_registration(source_pcd,
                                                                         target_pcd,
                                                                         o3d.core.Tensor(trans_init),
                                                                         max_correspondence_distance)
@@ -480,7 +500,7 @@ def run_full_icp(dataset_dir: str,
                                                              information_icp,
                                                              uncertain=False))
 
-                registration_res = PairwiseRegistration(pcds[source_id], pcds[target_id], transformation_icp, "odometry")
+                registration_res = PairwiseRegistration(pcds[source_id], pcds[target_id], transformation_icp, "odometry", iteration_data)
                 pairwise_registrations.append(registration_res)
             else:  # loop closure case
                 if transformation_icp is None or information_icp is None:
@@ -494,7 +514,7 @@ def run_full_icp(dataset_dir: str,
                                                              information_icp,
                                                              uncertain=True))
 
-                registration_res = PairwiseRegistration(pcds[source_id], pcds[target_id], transformation_icp, "loop")
+                registration_res = PairwiseRegistration(pcds[source_id], pcds[target_id], transformation_icp, "loop", iteration_data)
                 pairwise_registrations.append(registration_res)
 
     pairwise_registrations = list(map(lambda x: x.as_dict(), pairwise_registrations))

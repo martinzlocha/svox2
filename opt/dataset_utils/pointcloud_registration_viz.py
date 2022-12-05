@@ -29,21 +29,22 @@ class RegistrationViz(AbstractViz):
         self.add_settings_panel_section('pairwise_registration', 'Pairwise Registration')
         self.slider = self.add_slider_selection('pairwise_registration', (0, len(registrations) - 1), self.change_pairwise_registration_slider)
 
-
         self.label_source_id = gui.Label(f'Source ID: {self.pairwise_registrations[0].source.frames[0].frame_data["image_id"]}')
         self.label_target_id = gui.Label(f'Target ID: {self.pairwise_registrations[0].target.frames[0].frame_data["image_id"]}')
         self.label_type = gui.Label(f'Type: {self.pairwise_registrations[0].edge_type}')
         self.matrix_label_rows = None
-
 
         self.add_settings_panel_child("pairwise_registration", self.label_source_id)
         self.add_settings_panel_child("pairwise_registration", self.label_target_id)
         self.add_settings_panel_child("pairwise_registration", self.label_type)
         self.update_transform_matrix_label(self.pairwise_registrations[0].transform_matrix)
 
+        self.iteration_slider = self.add_slider_selection('pairwise_registration', (0, 1), self.change_iteration_slider)
+
         self.change_pairwise_registration_slider(self.slider, 0)
         self.add_show_checkbox_for_geometry('pairwise_registration_pcd_source', 'pairwise_registration', "Show Source", True)
         self.add_show_checkbox_for_geometry('pairwise_registration_pcd_target', 'pairwise_registration', "Show Target", True)
+
 
     def update_transform_matrix_label(self, matrix: np.ndarray):
         if self.matrix_label_rows is None:
@@ -65,13 +66,29 @@ class RegistrationViz(AbstractViz):
         self.remove_geometry('pairwise_registration_pcd_target')
 
         self.add_geometry('pairwise_registration_pcd_source', registration.source.pointcloud.as_open3d())
-        self._scene.scene.set_geometry_transform('pairwise_registration_pcd_source', registration.transform_matrix)
+        # self._scene.scene.set_geometry_transform('pairwise_registration_pcd_source', registration.transform_matrix)
         self.add_geometry('pairwise_registration_pcd_target', registration.source.pointcloud.as_open3d())
 
         self.label_source_id.text = f'Source ID: {registration.source.frames[0].frame_data["image_id"]}'
         self.label_target_id.text = f'Target ID: {registration.target.frames[0].frame_data["image_id"]}'
         self.label_type.text = f'Type: {registration.edge_type}'
-        self.update_transform_matrix_label(registration.transform_matrix)
+        # self.update_transform_matrix_label(registration.transform_matrix)
+
+        self.iteration_slider.set_limits(0, len(registration.iteration_data) - 1)
+        self.iteration_slider.int_value = len(registration.iteration_data) - 1
+
+        self.change_iteration_slider(self.iteration_slider, len(registration.iteration_data) - 1)
+
+
+    def change_iteration_slider(self, slider, value: int):
+        registration = self.pairwise_registrations[self.slider.int_value]
+        iteration_data = registration.iteration_data[value]
+
+        # print(iteration_data)
+
+        self._scene.scene.set_geometry_transform('pairwise_registration_pcd_source', iteration_data["transformation"])
+
+        self.update_transform_matrix_label(iteration_data["transformation"])
 
 
 def main(dataset_dir: str):
