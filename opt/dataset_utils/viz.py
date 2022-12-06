@@ -5,10 +5,10 @@ import numpy as np
 import open3d as o3d
 import open3d.visualization.gui as gui
 import os
-from point_cloud import Pointcloud, stack_pointclouds
+from dataset_utils.point_cloud import Pointcloud, stack_pointclouds
 from fire import Fire
-from abstract_viz import AbstractViz, shift_int_slider
-from pointcloud_registration import load_frame_data_from_dataset
+from dataset_utils.abstract_viz import AbstractViz, shift_int_slider
+from dataset_utils.framedata import load_frame_data_from_dataset
 import sys
 print(sys.path)
 
