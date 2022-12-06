@@ -8,7 +8,6 @@ else:
     device = o3d.core.Device("CPU:0")
 import json
 import os
-from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Literal
 import itertools
 
@@ -70,63 +69,6 @@ class PairwiseRegistrationLog:
             data["transformation"] = np.array(data["transformation"])
 
         return cls(source, target, transform_matrix, edge_type, iteration_data)
-
-
-class Camera:
-    def __init__(self, transform: np.ndarray, width: int, height: int, focal: float, pointcloud: o3d.geometry.PointCloud):
-        self._transform = transform
-        self.width = width
-        self.height = height
-        self.focal = focal
-
-        self.pointcloud = pointcloud
-        self.t_pointcloud = self.get_t_pointcloud()
-
-        self.frustum = self._get_frustum()
-
-    def _get_frustum(self):
-        """
-        Returns the frustum of the camera in the form of a list of 5 points:
-        [top_left, top_right, bottom_left, bottom_right, center]
-        """
-
-        xx, yy = np.meshgrid(
-            np.asarray([self.height + 0.5, 0.5]),
-            np.asarray([0.5, self.width + 0.5])
-        )
-
-        zz = -np.ones_like(xx)
-        dirs = np.stack((xx, yy, zz), axis=-1)  # OpenCV convention
-
-        dirs = dirs.reshape(-1, 3, 1)
-        del xx, yy, zz
-
-        dirs = (self._transform[:3, :3] @ dirs)[..., 0] * 6
-        origin = self._transform[:3, 3]
-        vertices = origin + dirs
-
-        return vertices
-
-    def transform(self, transform: np.ndarray) -> None:
-        self._transform: np.ndarray = transform @ self._transform
-        self.frustum = self._get_frustum()
-
-        self.pointcloud.transform(transform)
-        self.t_pointcloud = self.get_t_pointcloud()
-
-    def get_t_pointcloud(self) -> o3d.t.geometry.PointCloud:
-        pcd = o3d.t.geometry.PointCloud(device)
-        pcd.point.positions = o3d.core.Tensor(np.asarray(self.pointcloud.points), device=device)
-        pcd.point.colors = o3d.core.Tensor(np.asarray(self.pointcloud.colors), device=device)
-        pcd.estimate_normals(max_nn=30, radius=0.15)
-
-        return pcd
-
-    def frustum_squared_distance(self, other: 'Camera'):
-        """
-        Returns the squared distance between the frustums of the two cameras.
-        """
-        return np.sum((self.frustum - other.frustum) ** 2)
 
 
 def merge_pointclouds(pointclouds: List[o3d.t.geometry.PointCloud]) -> o3d.t.geometry.PointCloud:
