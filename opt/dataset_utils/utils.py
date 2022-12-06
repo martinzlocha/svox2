@@ -11,6 +11,9 @@ def load_depth_file(fpath: str) -> torch.Tensor:
     depth = cv2.imread(fpath, cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
     if depth.ndim == 3: 
         depth = depth[:,:,2]
+    # Quick hack: If more than 100 the units are likely mm not m.
+    if np.max(depth) > 100:
+        depth /= 1000
 
     return torch.from_numpy(depth)
 
