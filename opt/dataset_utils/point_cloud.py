@@ -49,8 +49,9 @@ def _get_points_and_features(frame: Dict, dataset_path: str, camera_angle_x: flo
         confidence = load_confidence_file(confidence_path)
         confidence = confidence.reshape(-1, 1)
 
-        img = img[confidence[:, 0] == 2, :]
-        img_points = img_points[confidence[:, 0] == np.max(confidence), :]
+        max_confidence = torch.max(confidence)
+        img = img[confidence[:, 0] == max_confidence, :]
+        img_points = img_points[confidence[:, 0] == max_confidence, :]
 
     return img_points, img
 
