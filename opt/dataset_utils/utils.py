@@ -69,3 +69,14 @@ def depth_file_path_from_frame(frame: dict, dataset_dir: str) -> str:
 
 def confidence_file_path_from_frame(frame: dict, dataset_dir: str) -> str:
     return os.path.join(dataset_dir, frame['confidence_path'])
+
+
+def invert_transformation_matrix(matrix):
+    # http://www.info.hiroshima-cu.ac.jp/~miyazaki/knowledge/teche0053.html
+    R = matrix[:3, :3]
+    t = matrix[:3, 3:]
+    inverted_matrix = np.concatenate([R.T, -R.T @ t], axis=-1)
+    inverted_matrix = np.concatenate([inverted_matrix,
+                                 np.array([[0., 0., 0., 1.]])],
+                                 axis=0)
+    return inverted_matrix

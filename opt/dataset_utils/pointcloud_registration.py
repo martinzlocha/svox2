@@ -1,3 +1,6 @@
+from collections import namedtuple
+from dataclasses import dataclass
+import time
 import open3d as o3d
 
 if o3d.__DEVICE_API__ == 'cuda':
@@ -8,28 +11,16 @@ else:
     device = o3d.core.Device("CPU:0")
 import json
 import os
-from typing import Dict, List, Literal
+from typing import Any, Dict, List, Literal, Optional, Tuple
 import itertools
 
 import numpy as np
 from fire import Fire
-from tqdm import tqdm
+from tqdm import tqdm, trange
 import torch
 import cv2
 from dataset_utils.aabb_iou import aabb_intersection_ratios_open3d
-from dataset_utils.framedata import FrameData, ParentFrame, load_frame_data_from_dataset
-
-
-
-def invert_transformation_matrix(matrix):
-    # http://www.info.hiroshima-cu.ac.jp/~miyazaki/knowledge/teche0053.html
-    R = matrix[:3, :3]
-    t = matrix[:3, 3:]
-    inverted_matrix = np.concatenate([R.T, -R.T @ t], axis=-1)
-    inverted_matrix = np.concatenate([inverted_matrix,
-                                 np.array([[0., 0., 0., 1.]])],
-                                 axis=0)
-    return inverted_matrix
+from dataset_utils.framedata import FrameData, ParentFrame, load_frame_data_from_dataset, invert_transformation_matrix
 
 
 class PairwiseRegistrationLog:
@@ -71,7 +62,14 @@ class PairwiseRegistrationLog:
         return cls(source, target, transform_matrix, edge_type, iteration_data)
 
 
-def pairwise_registration(source, target, trans_init, max_correspondence_distance, voxel_size=0.01):
+@dataclass
+class EdgeCandidate:
+    source_id: int
+    target_id: int
+    edge_type: Literal["loop", "odometry"]
+
+
+def pairwise_registration(source, target, trans_init):
     iteration_data = []
     def iteration_callback(data: Dict):
         iteration_data.append(data)
@@ -127,41 +125,10 @@ def should_add_edge_intersection(pcd1: o3d.t.geometry.PointCloud,
                                  pcd2: o3d.t.geometry.PointCloud,
                                  scale: float = 0.3,
                                  iou_threshold = 0.99) -> bool:
-    # # Downscaled AABB
-    # bounding_box1 = pcd1.get_axis_aligned_bounding_box()
-    # bounding_box2 = pcd2.get_axis_aligned_bounding_box()
-    # bounding_box1.scale(scale, center=bounding_box1.get_center())
-    # bounding_box2.scale(scale, center=bounding_box2.get_center())
-
-    # # Shape: [3, 2]
-    # print(bounding_box1.get_min_bound())
-    # min_max_extents1 = np.stack([bounding_box1.get_min_bound().numpy(),
-    #                              bounding_box1.get_max_bound().numpy()], axis=-1)
-    # # Shape: [3, 2]
-    # min_max_extents2 = np.stack([bounding_box2.get_min_bound().numpy(),
-    #                              bounding_box2.get_max_bound().numpy()], axis=-1)
-
-    # has_overlap = True
-    # for i in range(3):
-    #     has_overlap = has_overlap and (has_aabb_one_dimensional_overlap(min_max_extents1[i],
-    #                                                                     min_max_extents2[i]))
-    # return has_overlap
-
-
     bounding_box1 = pcd1.get_axis_aligned_bounding_box()
     bounding_box2 = pcd2.get_axis_aligned_bounding_box()
-    # min_max_1 = np.stack([bounding_box1.get_min_bound().cpu().numpy(), bounding_box1.get_max_bound().cpu().numpy()], axis=0)  # Shape: (2, 3)
-    # min_max_2 = np.stack([bounding_box2.get_min_bound().cpu().numpy(), bounding_box2.get_max_bound().cpu().numpy()], axis=0)  # Shape: (2, 3)
-
-    # iou, aabb1_intersection_ratio, aabb2_intersection_ratio = aabb_intersection_ratios(min_max_1, min_max_2)
     iou, aabb1_intersection_ratio, aabb2_intersection_ratio = aabb_intersection_ratios_open3d(bounding_box1, bounding_box2)
-
     loop_should_be_closed = iou > iou_threshold or aabb1_intersection_ratio > iou_threshold or aabb2_intersection_ratio > iou_threshold
-
-    # if loop_should_be_closed:
-    #     #debugging
-    #     print(iou, aabb1_intersection_ratio, aabb2_intersection_ratio)
-
     return loop_should_be_closed
 
 
@@ -173,91 +140,168 @@ def cluster_frame_data(frames: List[FrameData],
     return [ParentFrame(frames[i:i + frames_per_cluster]) for i in range(0, len(frames), frames_per_cluster)]
 
 
+def _load_transforms_json(dataset_dir: str, json_file_name: str) -> Dict[str, Any]:
+    transforms_json = os.path.join(dataset_dir, json_file_name)
+    with open(transforms_json, 'r') as f:
+        json_data = json.load(f)
+    return json_data
+
+
+def build_edge_candidates(fragment_data: List[ParentFrame], no_loop_closure_within_frames: int) -> List[EdgeCandidate]:
+    edge_candidates = []
+
+    # odometry candidates
+    for source_id in trange(len(fragment_data) - 1, desc="Odometry candidates"):
+        edge_candidates.append(EdgeCandidate(source_id, source_id+1, "odometry"))
+
+    for source_id in trange(len(fragment_data) - 1, desc="Loop candidates"):
+        last_loop_closure = source_id
+        source_pcd = fragment_data[source_id].pointcloud.as_open3d_tensor(device=device)
+        for target_id in range(source_id + no_loop_closure_within_frames, len(fragment_data) - 1):
+            if target_id < last_loop_closure + no_loop_closure_within_frames:
+                continue
+
+            target_pcd = fragment_data[target_id].pointcloud.as_open3d_tensor(device=device)
+            if should_add_edge_intersection(source_pcd, target_pcd):
+                edge_candidates.append(EdgeCandidate(source_id, target_id, "loop"))
+                last_loop_closure = target_id
+
+    return edge_candidates
+
+
+@dataclass
+class RegistrationResult:
+    transformation: np.ndarray
+    information: np.ndarray
+    iteration_data: List[Dict[str, Any]]
+
+
+def register_pointclouds(fragment_data: List[ParentFrame], edge_candidate: EdgeCandidate, init_transform: np.ndarray) -> Optional[RegistrationResult]:
+    source_pcd = fragment_data[edge_candidate.source_id].pointcloud.as_open3d_tensor(estimate_normals=True, device=device)
+    target_pcd = fragment_data[edge_candidate.target_id].pointcloud.as_open3d_tensor(estimate_normals=True, device=device)
+
+    transformation_icp, information_icp, iteration_data = pairwise_registration(source_pcd, target_pcd, init_transform)
+    if transformation_icp is None or information_icp is None or iteration_data is None:
+        return None
+
+    return RegistrationResult(transformation_icp, information_icp, iteration_data)
+
+
+def register_candidates(fragment_data: List[ParentFrame], edge_candidates: List[EdgeCandidate]) -> Tuple[List[RegistrationResult], List[PairwiseRegistrationLog]]:
+    # TODO: multi-thread this
+    registration_results = []
+    registration_logs = []
+    for edge_candidate in tqdm(edge_candidates):
+        registration_result = register_pointclouds(fragment_data, edge_candidate, np.eye(4))
+        if registration_result is None and edge_candidate.edge_type == "odometry":
+            raise RuntimeError("No correspondence found for the odometry case")
+
+        registration_results.append(registration_result)
+        if registration_result is not None:
+            registration_logs.append(PairwiseRegistrationLog(
+                fragment_data[edge_candidate.source_id],
+                fragment_data[edge_candidate.target_id],
+                registration_result.transformation,
+                edge_candidate.edge_type,
+                registration_result.iteration_data,
+            ))
+
+    return registration_results, registration_logs
+
+
+def build_pose_graph(edge_candidates: List[EdgeCandidate], registration_results: List[RegistrationResult]) -> o3d.pipelines.registration.PoseGraph:
+    if len(edge_candidates) != len(registration_results):
+        raise RuntimeError("The number of edge candidates and registration results must be the same")
+
+    # TODO: merge edge_candidates and registration_results into a single dataclass
+    pose_graph = o3d.pipelines.registration.PoseGraph()
+
+    # add first node
+    odometry = np.identity(4)
+    pose_graph.nodes.append(o3d.pipelines.registration.PoseGraphNode(odometry))
+
+    for registration_result, edge_candidate in zip(registration_results, tqdm(edge_candidates)):
+        print(f"Adding edge {edge_candidate.source_id} -> {edge_candidate.target_id}")
+        if registration_result is None:
+            if edge_candidate.edge_type == "loop":
+                continue
+            else:
+                raise RuntimeError("No correspondence found for the odometry case")
+
+        if edge_candidate.edge_type == "odometry":
+            odometry = np.dot(registration_result.transformation, odometry)
+            pose_graph.nodes.append(
+                    o3d.pipelines.registration.PoseGraphNode(
+                        invert_transformation_matrix(odometry)))
+
+        pose_graph.edges.append(
+            o3d.pipelines.registration.PoseGraphEdge(edge_candidate.source_id, edge_candidate.target_id,
+                                                     registration_result.transformation,
+                                                     registration_result.information,
+                                                     uncertain=edge_candidate.edge_type == "loop"))
+
+    return pose_graph
+
+
 def run_full_icp(dataset_dir: str,
                  max_correspondence_distance: float = 0.4,
                  pose_graph_optimization_iterations: int = 300,
                  no_loop_closure_within_frames: int = 12,
-                 frames_per_cluster: int = 1,
-                 thread_pool_size: int = 8) -> None:
-
+                 frames_per_cluster: int = 1) -> None:
+    # CONFIG
     json_file_name = 'transforms_train.json'
     transforms_train = os.path.join(dataset_dir, json_file_name)
-    with open(transforms_train, 'r') as f:
-        train_json = json.load(f)
+    max_fragments = None # debug, set to None to disable
 
+    # ICP
+    json_data = _load_transforms_json(dataset_dir, json_file_name)
     frame_data = load_frame_data_from_dataset(dataset_dir, transforms_train)
-    frame_data = cluster_frame_data(frame_data, frames_per_cluster=frames_per_cluster)
-    pcds = frame_data
-    pose_graph = o3d.pipelines.registration.PoseGraph()
-    odometry = np.identity(4)
-    pose_graph.nodes.append(o3d.pipelines.registration.PoseGraphNode(odometry))
-    n_pcds = len(pcds)
-    n_pcds = 1000 # debug
-    print('Building pose graph ...')
-    pairwise_registrations = []
+    print("clustering frames...")
+    fragment_data = cluster_frame_data(frame_data, frames_per_cluster=frames_per_cluster)
+    if max_fragments is not None:
+        fragment_data = fragment_data[:max_fragments]  # debug
 
-    for source_id in tqdm(range(n_pcds)):
-        source_pcd = pcds[source_id].pointcloud.as_open3d_tensor(estimate_normals=True, device=device)
-        # source_trans_inv = invert_transformation_matrix(pcds[source_id].transform_matrix)
-        last_loop_closure = source_id
-        for target_id in range(source_id+1, n_pcds):
-            target_pcd = pcds[target_id].pointcloud.as_open3d_tensor(estimate_normals=True, device=device)
-            if not (target_id == source_id + 1 or (target_id >= source_id + no_loop_closure_within_frames and target_id >= last_loop_closure + no_loop_closure_within_frames and should_add_edge_intersection(source_pcd, target_pcd))):
-                continue
-            target_trans = pcds[target_id].transform_matrix
-            # trans_init = target_trans @ source_trans_inv
-            trans_init = np.eye(4)
+    print("precomputing pointclouds...")
+    tic = time.time()
+    for fragment in tqdm(fragment_data):
+        # enough to just call as_open3d_tensor. subesquent calls will be cached
+        # TODO: multi-thread this
+        fragment.pointcloud.as_open3d_tensor(estimate_normals=True, device=device)
+    toc = time.time()
+    print(f'precomputing pointclouds took {toc-tic:.2f}s')
 
-            if target_id == source_id + 1:  # odometry case
-                # if transformation_icp is None or information_icp is None:
-                #     # no correspondence found
-                #     raise ValueError("no transformation found for odometry case")
-                transformation_icp = np.eye(4)
-                information_icp = treg.get_information_matrix(source_pcd, target_pcd, 0.03, transformation_icp).numpy()
-                # odometry = np.dot(transformation_icp, odometry)
-                pose_graph.nodes.append(
-                    o3d.pipelines.registration.PoseGraphNode(
-                        invert_transformation_matrix(odometry)))
-                # print(transformation_icp)
-                # print(information_icp)
-                pose_graph.edges.append(
-                    o3d.pipelines.registration.PoseGraphEdge(source_id,
-                                                             target_id,
-                                                             transformation_icp,
-                                                             information_icp,
-                                                             uncertain=False))
+    # get edge candidates
+    # time build_edge_candidates
+    print("building edge candidates...")
+    tic = time.time()
+    edge_candidates = build_edge_candidates(fragment_data, no_loop_closure_within_frames)
+    toc = time.time()
+    print(f'build_edge_candidates took {toc-tic:.2f}s')
 
-                # registration_res = PairwiseRegistrationLog(pcds[source_id], pcds[target_id], transformation_icp, "odometry", iteration_data)
-                # pairwise_registrations.append(registration_res)
-            else:  # loop closure case
-                transformation_icp, information_icp, iteration_data = pairwise_registration(source_pcd,
-                                                                        target_pcd,
-                                                                        o3d.core.Tensor(trans_init),
-                                                                        max_correspondence_distance)
-                if transformation_icp is None or information_icp is None:
-                    continue
-                print(f"closing the loop for frames {source_id} and {target_id}")
-                last_loop_closure = target_id
-                pose_graph.edges.append(
-                    o3d.pipelines.registration.PoseGraphEdge(source_id,
-                                                             target_id,
-                                                             transformation_icp,
-                                                             information_icp,
-                                                             uncertain=True))
 
-                registration_res = PairwiseRegistrationLog(pcds[source_id], pcds[target_id], transformation_icp, "loop", iteration_data)
-                pairwise_registrations.append(registration_res)
+    print('Registering frames ...')
+    tic = time.time()
+    registration_results, registration_logs = register_candidates(fragment_data, edge_candidates)
+    toc = time.time()
+    print(f'register_candidates took {toc-tic:.2f}s')
 
-    pairwise_registrations = list(map(lambda x: x.as_dict(), pairwise_registrations))
+    pairwise_registrations_logs = list(map(lambda x: x.as_dict(), registration_logs))
     registration_data = {
         "transforms_json_file": json_file_name,
-        "pairwise_registrations": pairwise_registrations,
+        "pairwise_registrations": pairwise_registrations_logs,
     }
     with open(os.path.join(dataset_dir, 'pairwise_registrations.json'), 'w') as f:
         json.dump(registration_data, f, indent=4)
 
     del registration_data
-    del pairwise_registrations
+    del pairwise_registrations_logs
+    del registration_logs  # can easily take a couple of GBs of memory
+
+    print('Building pose graph ...')
+    tic = time.time()
+    pose_graph = build_pose_graph(edge_candidates, registration_results)
+    toc = time.time()
+    print(f'build_pose_graph took {toc-tic:.2f}s')
 
     print("Optimizing pose graph ...")
     option = o3d.pipelines.registration.GlobalOptimizationOption(
@@ -274,9 +318,63 @@ def run_full_icp(dataset_dir: str,
             criteria,
             option)
 
+    # for source_id in tqdm(range(n_pcds)):
+    #     source_pcd = pcds[source_id].pointcloud.as_open3d_tensor(estimate_normals=True, device=device)
+    #     # source_trans_inv = invert_transformation_matrix(pcds[source_id].transform_matrix)
+    #     last_loop_closure = source_id
+    #     for target_id in range(source_id+1, n_pcds):
+    #         target_pcd = pcds[target_id].pointcloud.as_open3d_tensor(estimate_normals=True, device=device)
+    #         if not (target_id == source_id + 1 or (target_id >= source_id + no_loop_closure_within_frames and target_id >= last_loop_closure + no_loop_closure_within_frames and should_add_edge_intersection(source_pcd, target_pcd))):
+    #             continue
+    #         target_trans = pcds[target_id].transform_matrix
+    #         # trans_init = target_trans @ source_trans_inv
+    #         trans_init = np.eye(4)
+
+    #         if target_id == source_id + 1:  # odometry case
+    #             # if transformation_icp is None or information_icp is None:
+    #             #     # no correspondence found
+    #             #     raise ValueError("no transformation found for odometry case")
+    #             transformation_icp = np.eye(4)
+    #             information_icp = treg.get_information_matrix(source_pcd, target_pcd, 0.03, transformation_icp).numpy()
+    #             # odometry = np.dot(transformation_icp, odometry)
+    #             pose_graph.nodes.append(
+    #                 o3d.pipelines.registration.PoseGraphNode(
+    #                     invert_transformation_matrix(odometry)))
+    #             # print(transformation_icp)
+    #             # print(information_icp)
+    #             pose_graph.edges.append(
+    #                 o3d.pipelines.registration.PoseGraphEdge(source_id,
+    #                                                          target_id,
+    #                                                          transformation_icp,
+    #                                                          information_icp,
+    #                                                          uncertain=False))
+
+    #             # registration_res = PairwiseRegistrationLog(pcds[source_id], pcds[target_id], transformation_icp, "odometry", iteration_data)
+    #             # pairwise_registrations.append(registration_res)
+    #         else:  # loop closure case
+    #             transformation_icp, information_icp, iteration_data = pairwise_registration(source_pcd,
+    #                                                                     target_pcd,
+    #                                                                     o3d.core.Tensor(trans_init),
+    #                                                                     max_correspondence_distance)
+    #             if transformation_icp is None or information_icp is None:
+    #                 continue
+    #             print(f"closing the loop for frames {source_id} and {target_id}")
+    #             last_loop_closure = target_id
+    #             pose_graph.edges.append(
+    #                 o3d.pipelines.registration.PoseGraphEdge(source_id,
+    #                                                          target_id,
+    #                                                          transformation_icp,
+    #                                                          information_icp,
+    #                                                          uncertain=True))
+
+    #             registration_res = PairwiseRegistrationLog(pcds[source_id], pcds[target_id], transformation_icp, "loop", iteration_data)
+    #             pairwise_registrations.append(registration_res)
+
+
+
 
     # for parent_frame, node in zip(frame_data, pose_graph.nodes):
-    for i in range(n_pcds):
+    for i in range(len(frame_data)):
         parent_frame = frame_data[i]
         node = pose_graph.nodes[i]
         parent_frame.transform_matrix = node.pose @ parent_frame.transform_matrix
@@ -284,17 +382,18 @@ def run_full_icp(dataset_dir: str,
     print("Optimizing local transformations...")
     # Get sequential transforms in parallel
     # with Pool(thread_pool_size) as p:
-    new_transforms = list(tqdm(map(unpack_parent_frame, frame_data), total=len(frame_data)))
+    new_transforms = list(tqdm(map(unpack_parent_frame, fragment_data), total=len(fragment_data)))
     new_transforms = itertools.chain(*new_transforms)
 
     print("Writing results ...")
     transforms_train_shifted = os.path.join(dataset_dir, 'transforms_train_original_shifted.json')
     with open(transforms_train_shifted, 'w') as f:
-        for i, (transform, json_frame) in enumerate(zip(new_transforms, train_json['frames'])):
+        for i, (transform, json_frame) in enumerate(zip(new_transforms, json_data['frames'])):
             json_frame['transform_matrix'] = transform.tolist()
 
-        train_json['frames'] = train_json['frames'][:n_pcds]  # debug
-        json.dump(train_json, f, indent=4)
+        if max_fragments is not None:
+            json_data['frames'] = json_data['frames'][:max_fragments]  # debug
+        json.dump(json_data, f, indent=4)
 
 def get_transformation_mat(source, target, steps=200):
     R = torch.nn.Parameter(torch.eye(3))

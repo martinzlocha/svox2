@@ -19,7 +19,8 @@ from tqdm import tqdm
 
 from dataset_utils.point_cloud import Pointcloud, stack_pointclouds
 from dataset_utils.utils import (depth_file_path_from_frame,
-                                 img_file_path_from_frame, load_depth_file)
+                                 img_file_path_from_frame, load_depth_file,
+                                 invert_transformation_matrix)
 
 
 class FrameData:
