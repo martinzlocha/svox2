@@ -1,11 +1,14 @@
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 from abstract_viz import AbstractViz
+from dataset_utils.pointcloud_registration import FrameData, load_frame_data_from_dataset
 from pointcloud_registration import PairwiseRegistration
-from typing import List
+from typing import Dict, List, Optional
 from fire import Fire
 import open3d.visualization.gui as gui
 import numpy as np
+from tqdm import tqdm
 
 
 def fts(f: float, precision: int):
@@ -23,7 +26,7 @@ def fts(f: float, precision: int):
 
 
 class RegistrationViz(AbstractViz):
-    def __init__(self, registrations: List[PairwiseRegistration]):
+    def __init__(self, registrations: List[PairwiseRegistration], dataset_dir: Optional[str] = None):
         super().__init__()
         self.pairwise_registrations: List[PairwiseRegistration] = registrations
         self.add_settings_panel_section('pairwise_registration', 'Pairwise Registration')
@@ -96,6 +99,9 @@ class RegistrationViz(AbstractViz):
         self._scene.scene.set_geometry_transform('pairwise_registration_pcd_source', iteration_data["transformation"])
         self.update_transform_matrix_label(iteration_data["transformation"])
 
+def load_frames_dict(dataset_dir: str, json_file_name: str) -> Dict[int, FrameData]:
+    frames = load_frame_data_from_dataset(dataset_dir, json_file_name)
+    return {frame.frame_data["image_id"]: frame for frame in frames}
 
 def main(dataset_dir: str):
     pairwise_registration_file = os.path.join(dataset_dir, 'pairwise_registrations.json')
@@ -106,7 +112,11 @@ def main(dataset_dir: str):
     with open(pairwise_registration_file, 'r') as f:
         data = json.load(f)
 
-    pairwise_registrations = [PairwiseRegistration.from_dict(parent_frame_dict) for parent_frame_dict in data]
+    json_file_name = data["transforms_json_file"]
+    frames_dict = load_frames_dict(dataset_dir, json_file_name)
+
+    with ThreadPoolExecutor() as executor:
+        pairwise_registrations = list(tqdm(executor.map(lambda pfd: PairwiseRegistration.from_dict(pfd, frames_dict), data["pairwise_registrations"])))
 
     gui.Application.instance.initialize()
     viz = RegistrationViz(pairwise_registrations)

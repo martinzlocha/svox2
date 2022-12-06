@@ -10,7 +10,7 @@ import copy
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, List, Literal, Union
+from typing import Dict, List, Literal, Optional, Union
 import itertools
 
 import imageio.v2 as imageio
@@ -24,7 +24,7 @@ from utils import (depth_file_path_from_frame,
                    img_file_path_from_frame,
                    load_depth_file,
                    get_rays)
-from point_cloud import Pointcloud
+from point_cloud import Pointcloud, stack_pointclouds
 from aabb_iou import aabb_intersection_ratios, aabb_intersection_ratios_open3d
 
 
@@ -60,17 +60,6 @@ class FrameData:
 
         self._matching = None
 
-    def as_dict(self) -> Dict:
-        return {
-            "frame_data": self.frame_data,
-            "dataset_dir": self.dataset_dir,
-            "camera_angle_x": self.camera_angle_x,
-        }
-
-    @classmethod
-    def from_dict(cls, data: Dict) -> "FrameData":
-        return cls(**data)
-
     def transform_(self, transform_matrix: np.ndarray) -> None:
         """
         In-place frame transformation
@@ -91,10 +80,12 @@ class ParentFrame:
         self.frames = frames
         self.transform_matrix = frames[0].transform_matrix
 
-        self.pointcloud = frames[0].pointcloud
-        # Aggregate point clouds
-        for frame in frames[1:]:
-            self.pointcloud = self.pointcloud + frame.pointcloud
+        self.pointcloud = stack_pointclouds([frame.pointcloud for frame in frames])
+
+        # self.pointcloud = frames[0].pointcloud
+        # # Aggregate point clouds
+        # for frame in frames[1:]:
+        #     self.pointcloud = self.pointcloud + frame.pointcloud
 
     def get_all_frame_transforms(self) -> List[np.ndarray]:
         """Uses original transforms and ICP to compute transforms for all frames in group."""
@@ -130,14 +121,16 @@ class ParentFrame:
 
     def as_dict(self) -> Dict:
         return {
-            "frames": [frame.as_dict() for frame in self.frames],
+            "frame_ids": [frame.frame_data["image_id"] for frame in self.frames],
             "transform_matrix": self.transform_matrix.tolist(),
         }
 
     @classmethod
-    def from_dict(cls, data: Dict) -> "ParentFrame":
-        frames = [FrameData(**frame_data) for frame_data in data["frames"]]
-        parent_frame = cls(frames)
+    def from_dict(cls, data: Dict, frames: Dict[int, FrameData]) -> "ParentFrame":
+        parent_frames = []
+        for frame_id in data["frame_ids"]:
+            parent_frames.append(frames[frame_id])
+        parent_frame = cls(parent_frames)
         parent_frame.transform_matrix = np.array(data["transform_matrix"])
         return parent_frame
 
@@ -160,7 +153,6 @@ class PairwiseRegistration:
             data["scale_iteration_index"] = data["scale_iteration_index"].cpu().item()
             data["iteration_index"] = data["iteration_index"].cpu().item();
 
-
         return {
             "source": self.source.as_dict(),
             "target": self.target.as_dict(),
@@ -170,9 +162,9 @@ class PairwiseRegistration:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict) -> "PairwiseRegistration":
-        source = ParentFrame.from_dict(data["source"])
-        target = ParentFrame.from_dict(data["target"])
+    def from_dict(cls, data: Dict, frames: Dict[int, FrameData]) -> "PairwiseRegistration":
+        source = ParentFrame.from_dict(data["source"], frames)
+        target = ParentFrame.from_dict(data["target"], frames)
         transform_matrix = np.array(data["transform_matrix"])
         edge_type = data["type"]
         iteration_data = data["iteration_data"]
@@ -451,12 +443,12 @@ def cluster_frame_data(frames: List[FrameData],
 def run_full_icp(dataset_dir: str,
                  max_correspondence_distance: float = 0.4,
                  pose_graph_optimization_iterations: int = 300,
-                 forward_frame_step_size: int = 1,
                  no_loop_closure_within_frames: int = 12,
                  frames_per_cluster: int = 1,
                  thread_pool_size: int = 8) -> None:
-    transforms_train = os.path.join(dataset_dir,
-                                    'transforms_train.json')
+
+    json_file_name = 'transforms_train.json'
+    transforms_train = os.path.join(dataset_dir, json_file_name)
     with open(transforms_train, 'r') as f:
         train_json = json.load(f)
 
@@ -475,7 +467,7 @@ def run_full_icp(dataset_dir: str,
         source_pcd = pcds[source_id].pointcloud.as_open3d_tensor(estimate_normals=True, device=device)
         # source_trans_inv = invert_transformation_matrix(pcds[source_id].transform_matrix)
         last_loop_closure = source_id
-        for target_id in range(source_id+1, n_pcds, forward_frame_step_size):
+        for target_id in range(source_id+1, n_pcds):
             target_pcd = pcds[target_id].pointcloud.as_open3d_tensor(estimate_normals=True, device=device)
             if not (target_id == source_id + 1 or (target_id >= source_id + no_loop_closure_within_frames and target_id >= last_loop_closure + no_loop_closure_within_frames and should_add_edge_intersection(source_pcd, target_pcd))):
                 continue
@@ -519,8 +511,15 @@ def run_full_icp(dataset_dir: str,
                 pairwise_registrations.append(registration_res)
 
     pairwise_registrations = list(map(lambda x: x.as_dict(), pairwise_registrations))
+    registration_data = {
+        "transforms_json_file": json_file_name,
+        "pairwise_registrations": pairwise_registrations,
+    }
     with open(os.path.join(dataset_dir, 'pairwise_registrations.json'), 'w') as f:
-        json.dump(pairwise_registrations, f, indent=4)
+        json.dump(registration_data, f, indent=4)
+
+    del registration_data
+    del pairwise_registrations
 
     print("Optimizing pose graph ...")
     option = o3d.pipelines.registration.GlobalOptimizationOption(
