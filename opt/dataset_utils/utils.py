@@ -13,6 +13,7 @@ def load_depth_file(fpath: str) -> torch.Tensor:
         depth = depth[:,:,2]
     # Quick hack: If more than 100 the units are likely mm not m.
     if np.max(depth) > 100:
+        depth = depth.astype(np.float32)
         depth /= 1000
 
     return torch.from_numpy(depth)
