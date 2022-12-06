@@ -20,6 +20,7 @@ ssh vastai "ssh-keyscan github.com >> ~/.ssh/known_hosts"
 # clone the FlatNeRF repo
 echo "cloning the repo"
 ssh -A vastai "git clone git@github.com:martinzlocha/svox2.git"
+ssh vastai "echo 'export PYTHONPATH=/root/svox2/opt:\$PYTHONPATH' >> ~/.bashrc"
 
 # prepare dir for datsets
 ssh vastai "mkdir datasets"
