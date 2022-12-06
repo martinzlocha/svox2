@@ -116,11 +116,6 @@ def pairwise_registration(source, target, trans_init):
         information_icp = np.eye(6)
     return transformation_icp, information_icp, iteration_data
 
-
-def has_aabb_one_dimensional_overlap(segment1: np.ndarray, segment2: np.ndarray) -> bool:
-    # Segement: [2] (min, max)
-    return segment1[1] >= segment2[0] and segment2[1] >= segment1[0]
-
 def should_add_edge_intersection(pcd1: o3d.t.geometry.PointCloud,
                                  pcd2: o3d.t.geometry.PointCloud,
                                  scale: float = 0.3,
