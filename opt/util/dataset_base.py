@@ -75,7 +75,7 @@ class DatasetBase:
 
         if hasattr(self, 'confidences'):
             print(f"Confidence count = {torch.bincount(self.confidences.reshape(-1))}")
-            depths[self.confidences != 2] = 0
+            depths[self.confidences != torch.max(self.confidences)] = 0
 
         depths = self.depths / dirs_norm[None, ...]
         depths = depths.reshape(-1, 1)

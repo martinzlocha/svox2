@@ -29,18 +29,23 @@ def load_image(fpath, scale=1):
     return torch.from_numpy(im_gt).to(dtype=torch.uint8)
 
 def load_depth_file(fpath, width, height) -> torch.Tensor:
-    img = cv2.imread(fpath, cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
-    depth = img[:,:,2]
+    depth = cv2.imread(fpath, cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
+    if depth.ndim == 3: 
+        depth = depth[:,:,2]
     depth = cv2.resize(depth, (width, height), interpolation=cv2.INTER_NEAREST)
 
     return torch.from_numpy(depth).to(dtype=torch.float16)
 
 def load_confidence_file(fpath, width, height) -> torch.Tensor:
-    with open(fpath, 'rb') as confidence_fh:
-        raw_bytes = confidence_fh.read()
-        decompressed_bytes = liblzfse.decompress(raw_bytes)
-        confidence_img = np.frombuffer(decompressed_bytes, dtype=np.uint8)
-        confidence_img = confidence_img.reshape((256, 192))
+    if '.conf' in fpath:
+        with open(fpath, 'rb') as confidence_fh:
+            raw_bytes = confidence_fh.read()
+            decompressed_bytes = liblzfse.decompress(raw_bytes)
+            confidence_img = np.frombuffer(decompressed_bytes, dtype=np.uint8)
+            confidence_img = confidence_img.reshape((256, 192))
+            confidence_img = cv2.resize(confidence_img, (width, height), interpolation=cv2.INTER_NEAREST)
+    else:
+        confidence_img = cv2.imread(fpath, cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
         confidence_img = cv2.resize(confidence_img, (width, height), interpolation=cv2.INTER_NEAREST)
     return torch.from_numpy(confidence_img).to(dtype=torch.uint8)
 

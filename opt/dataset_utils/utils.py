@@ -8,17 +8,21 @@ import cv2
 def load_depth_file(fpath: str) -> torch.Tensor:
     os.environ["OPENCV_IO_ENABLE_OPENEXR"]="1"
 
-    img = cv2.imread(fpath, cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
-    depth = img[:,:,2]
+    depth = cv2.imread(fpath, cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
+    if depth.ndim == 3: 
+        depth = depth[:,:,2]
 
     return torch.from_numpy(depth)
 
 def load_confidence_file(fpath: str) -> torch.Tensor:
-    with open(fpath, 'rb') as confidence_fh:
-        raw_bytes = confidence_fh.read()
-        decompressed_bytes = liblzfse.decompress(raw_bytes)
-        confidence_img = np.frombuffer(decompressed_bytes, dtype=np.uint8)
-    return torch.from_numpy(confidence_img)
+    if '.conf' in fpath:
+        with open(fpath, 'rb') as confidence_fh:
+            raw_bytes = confidence_fh.read()
+            decompressed_bytes = liblzfse.decompress(raw_bytes)
+            confidence_img = np.frombuffer(decompressed_bytes, dtype=np.uint8)
+    else:
+        confidence_img = cv2.imread(fpath, cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
+    return torch.from_numpy(confidence_img).to(dtype=torch.uint8)
 
 @dataclass
 class Rays:

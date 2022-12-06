@@ -50,7 +50,7 @@ def _get_points_and_features(frame: Dict, dataset_path: str, camera_angle_x: flo
         confidence = confidence.reshape(-1, 1)
 
         img = img[confidence[:, 0] == 2, :]
-        img_points = img_points[confidence[:, 0] == 2, :]
+        img_points = img_points[confidence[:, 0] == np.max(confidence), :]
 
     return img_points, img
 
