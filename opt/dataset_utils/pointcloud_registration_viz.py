@@ -3,7 +3,7 @@ import json
 import os
 from abstract_viz import AbstractViz
 from dataset_utils.pointcloud_registration import FrameData, load_frame_data_from_dataset
-from pointcloud_registration import PairwiseRegistration
+from pointcloud_registration import PairwiseRegistrationLog
 from typing import Dict, List, Optional
 from fire import Fire
 import open3d.visualization.gui as gui
@@ -26,9 +26,9 @@ def fts(f: float, precision: int):
 
 
 class RegistrationViz(AbstractViz):
-    def __init__(self, registrations: List[PairwiseRegistration], dataset_dir: Optional[str] = None):
+    def __init__(self, registrations: List[PairwiseRegistrationLog], dataset_dir: Optional[str] = None):
         super().__init__()
-        self.pairwise_registrations: List[PairwiseRegistration] = registrations
+        self.pairwise_registrations: List[PairwiseRegistrationLog] = registrations
         self.add_settings_panel_section('pairwise_registration', 'Pairwise Registration')
         self.slider = self.add_slider_selection('pairwise_registration', (0, len(registrations) - 1), self.change_pairwise_registration_slider)
 
@@ -116,7 +116,7 @@ def main(dataset_dir: str):
     frames_dict = load_frames_dict(dataset_dir, json_file_name)
 
     with ThreadPoolExecutor() as executor:
-        pairwise_registrations = list(tqdm(executor.map(lambda pfd: PairwiseRegistration.from_dict(pfd, frames_dict), data["pairwise_registrations"])))
+        pairwise_registrations = list(tqdm(executor.map(lambda pfd: PairwiseRegistrationLog.from_dict(pfd, frames_dict), data["pairwise_registrations"])))
 
     gui.Application.instance.initialize()
     viz = RegistrationViz(pairwise_registrations)

@@ -135,7 +135,7 @@ class ParentFrame:
         return parent_frame
 
 
-class PairwiseRegistration:
+class PairwiseRegistrationLog:
     def __init__(self, source: ParentFrame, target: ParentFrame, transform_matrix: np.ndarray, edge_type: Literal["loop", "odometry"], iteration_data: List[Dict]):
         self.source = source
         self.target = target
@@ -162,7 +162,7 @@ class PairwiseRegistration:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict, frames: Dict[int, FrameData]) -> "PairwiseRegistration":
+    def from_dict(cls, data: Dict, frames: Dict[int, FrameData]) -> "PairwiseRegistrationLog":
         source = ParentFrame.from_dict(data["source"], frames)
         target = ParentFrame.from_dict(data["target"], frames)
         transform_matrix = np.array(data["transform_matrix"])
@@ -459,7 +459,7 @@ def run_full_icp(dataset_dir: str,
     odometry = np.identity(4)
     pose_graph.nodes.append(o3d.pipelines.registration.PoseGraphNode(odometry))
     n_pcds = len(pcds)
-    n_pcds = 400 # debug
+    n_pcds = 1000 # debug
     print('Building pose graph ...')
     pairwise_registrations = []
 
@@ -474,18 +474,19 @@ def run_full_icp(dataset_dir: str,
             target_trans = pcds[target_id].transform_matrix
             # trans_init = target_trans @ source_trans_inv
             trans_init = np.eye(4)
-            transformation_icp, information_icp, iteration_data = pairwise_registration(source_pcd,
-                                                                        target_pcd,
-                                                                        o3d.core.Tensor(trans_init),
-                                                                        max_correspondence_distance)
+
             if target_id == source_id + 1:  # odometry case
-                if transformation_icp is None or information_icp is None:
-                    # no correspondence found
-                    raise ValueError("no transformation found for odometry case")
-                odometry = np.dot(transformation_icp, odometry)
+                # if transformation_icp is None or information_icp is None:
+                #     # no correspondence found
+                #     raise ValueError("no transformation found for odometry case")
+                transformation_icp = np.eye(4)
+                information_icp = treg.get_information_matrix(source_pcd, target_pcd, 0.03, transformation_icp).numpy()
+                # odometry = np.dot(transformation_icp, odometry)
                 pose_graph.nodes.append(
                     o3d.pipelines.registration.PoseGraphNode(
                         invert_transformation_matrix(odometry)))
+                # print(transformation_icp)
+                # print(information_icp)
                 pose_graph.edges.append(
                     o3d.pipelines.registration.PoseGraphEdge(source_id,
                                                              target_id,
@@ -493,12 +494,16 @@ def run_full_icp(dataset_dir: str,
                                                              information_icp,
                                                              uncertain=False))
 
-                registration_res = PairwiseRegistration(pcds[source_id], pcds[target_id], transformation_icp, "odometry", iteration_data)
-                pairwise_registrations.append(registration_res)
+                # registration_res = PairwiseRegistrationLog(pcds[source_id], pcds[target_id], transformation_icp, "odometry", iteration_data)
+                # pairwise_registrations.append(registration_res)
             else:  # loop closure case
+                transformation_icp, information_icp, iteration_data = pairwise_registration(source_pcd,
+                                                                        target_pcd,
+                                                                        o3d.core.Tensor(trans_init),
+                                                                        max_correspondence_distance)
                 if transformation_icp is None or information_icp is None:
                     continue
-                # print(f"closing the loop for frames {source_id} and {target_id}")
+                print(f"closing the loop for frames {source_id} and {target_id}")
                 last_loop_closure = target_id
                 pose_graph.edges.append(
                     o3d.pipelines.registration.PoseGraphEdge(source_id,
@@ -507,7 +512,7 @@ def run_full_icp(dataset_dir: str,
                                                              information_icp,
                                                              uncertain=True))
 
-                registration_res = PairwiseRegistration(pcds[source_id], pcds[target_id], transformation_icp, "loop", iteration_data)
+                registration_res = PairwiseRegistrationLog(pcds[source_id], pcds[target_id], transformation_icp, "loop", iteration_data)
                 pairwise_registrations.append(registration_res)
 
     pairwise_registrations = list(map(lambda x: x.as_dict(), pairwise_registrations))
