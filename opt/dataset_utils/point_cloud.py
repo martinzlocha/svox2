@@ -217,7 +217,9 @@ def stack_pointclouds(pointclouds: List[Pointcloud]) -> Pointcloud:
     """
     Stack a list of pointclouds into a single pointcloud
     """
-    print("Stacking pointclouds")
+
+    if len(pointclouds) == 0:
+        raise ValueError("Cannot stack empty list of pointclouds")
 
     # points = np.concatenate([pc._points for pc in pointclouds], axis=0)
     with ThreadPoolExecutor() as executor:
