@@ -11,15 +11,15 @@ else:
     import open3d.cpu.pybind.t.pipelines.registration as treg
     device = o3d.core.Device("CPU:0")
 
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import imageio.v2 as imageio
 import numpy as np
 from tqdm import tqdm
 
 from dataset_utils.point_cloud import Pointcloud, stack_pointclouds
-from dataset_utils.utils import (depth_file_path_from_frame,
-                                 img_file_path_from_frame, load_depth_file,
+from dataset_utils.utils import (confidence_file_path_from_frame, depth_file_path_from_frame,
+                                 img_file_path_from_frame, load_confidence_file, load_depth_file,
                                  invert_transformation_matrix)
 
 
@@ -35,10 +35,23 @@ class FrameData:
         depth_file_path = depth_file_path_from_frame(frame_data, dataset_dir)
         self.depth: np.ndarray = load_depth_file(depth_file_path).numpy()
 
+        if 'confidence_path' in frame_data:
+            confidence_path = confidence_file_path_from_frame(frame_data, dataset_dir)
+            confidence = load_confidence_file(confidence_path)
+            confidence = confidence.reshape(self.depth.shape)
+
+            # max_confidence = torch.max(confidence)
+            # img = img[confidence[:, 0] == max_confidence, :]
+            # img_points = img_points[confidence[:, 0] == max_confidence, :]
+            self.confidence_map: Optional[np.ndarray] = confidence.numpy()
+        else:
+            self.confidence_map: Optional[np.ndarray] = None
+
         self.transform_matrix = np.array(frame_data["transform_matrix"])
         self.pointcloud = Pointcloud.from_camera_transform(self.transform_matrix,
                                                            self.depth,
                                                            self.rgb,
+                                                           self.confidence_map,
                                                            self.camera_angle_x)
 
         self._matching = None

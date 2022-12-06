@@ -245,7 +245,7 @@ def run_full_icp(dataset_dir: str,
     # CONFIG
     json_file_name = 'transforms_train.json'
     transforms_train = os.path.join(dataset_dir, json_file_name)
-    max_fragments = None # debug, set to None to disable
+    max_fragments = 200 # debug, set to None to disable
 
     # ICP
     json_data = _load_transforms_json(dataset_dir, json_file_name)
@@ -258,9 +258,9 @@ def run_full_icp(dataset_dir: str,
     print("precomputing pointclouds...")
     tic = time.time()
     for fragment in tqdm(fragment_data):
-        # enough to just call as_open3d_tensor. subesquent calls will be cached
         # TODO: multi-thread this
-        fragment.pointcloud.as_open3d_tensor(estimate_normals=True, device=device)
+        fragment.pointcloud = fragment.pointcloud.take_only_with_max_confidence()  # confidence pruning
+        fragment.pointcloud.as_open3d_tensor(estimate_normals=True, device=device)  # subesquent calls will be cached
     toc = time.time()
     print(f'precomputing pointclouds took {toc-tic:.2f}s')
 

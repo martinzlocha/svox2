@@ -65,7 +65,7 @@ class Pointcloud:
         - Numpy arrays
         - PyTorch tensors
     """
-    def __init__(self, points: np.ndarray, colors: Optional[np.ndarray]=None):
+    def __init__(self, points: np.ndarray, colors: Optional[np.ndarray]=None, confidence: Optional[np.ndarray]=None):
         if colors is not None and points.shape != colors.shape:
             raise ValueError(f"points.shape: {points.shape}, colors.shape: {colors.shape}")
 
@@ -73,25 +73,24 @@ class Pointcloud:
         if colors is not None:
             colors = colors.astype(np.float32)
         self._colors = colors
+        self._confidence = confidence
 
         self._open3d_pcd = None
         self._open3d_tensor_pcd = None
         self._centre_of_mass = None
 
-    def as_numpy(self) -> Tuple[np.ndarray, Optional[np.ndarray]]:
+    def as_numpy(self) -> Tuple[np.ndarray, Optional[np.ndarray], Optional[np.ndarray]]:
         """
         Returns a tuple of (points, colors)
         """
-        return self._points, self._colors
+        return self._points, self._colors, self._confidence
 
-    def as_torch_tensor(self) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+    def as_torch_tensor(self) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
         """
         Returns a tuple of (points, colors)
         """
-        pcd = torch.from_numpy(self._points), torch.from_numpy(self._colors) if self._colors is not None else None
-
+        pcd = torch.from_numpy(self._points), torch.from_numpy(self._colors) if self._colors is not None else None, torch.from_numpy(self._confidence) if self._confidence is not None else None
         return pcd
-
 
     def as_open3d(self) -> o3d.geometry.PointCloud:
         """
@@ -127,6 +126,19 @@ class Pointcloud:
         self._open3d_tensor_pcd = pcd
         return pcd
 
+    def take_only_with_max_confidence(self) -> 'Pointcloud':
+        if self._confidence is None:
+            print("No confidence. Did you forget to include it or did you call this method twice?")
+            return self
+
+        max_confidence = np.max(self._confidence)
+        points = self._points[(self._confidence == max_confidence).squeeze(), :]
+        colors = None
+        if self._colors is not None:
+            colors = self._colors[(self._confidence == max_confidence).squeeze(), :]
+
+        return Pointcloud(points, colors)
+
     def transform_(self, transformation_matrix: np.ndarray):
         """
         In-place transformation of the pointcloud
@@ -142,7 +154,7 @@ class Pointcloud:
         self._centre_of_mass = None
 
     @classmethod
-    def from_camera_transform(cls, camera_transform_: np.ndarray, depth_map_: np.ndarray, rgb_: Optional[np.ndarray], camera_angle_x: float, clipping_distance: Optional[float]=None):
+    def from_camera_transform(cls, camera_transform_: np.ndarray, depth_map_: np.ndarray, rgb_: Optional[np.ndarray], confidence_map_: Optional[np.ndarray], camera_angle_x: float, clipping_distance: Optional[float]=None):
         """
         Create a pointcloud from a depth map and a camera transform.
         """
@@ -156,6 +168,12 @@ class Pointcloud:
             rgb_ = cv2.resize(rgb_, (width, height), interpolation=cv2.INTER_CUBIC)
         rgb = torch.from_numpy(rgb_) if rgb_ is not None else None
 
+        confidence_map = None
+        if confidence_map_ is not None:
+            if confidence_map_.shape != depth_map.shape:
+                raise ValueError(f"confidence_map_.shape: {confidence_map_.shape}, depth_map.shape: {depth_map.shape}")
+            confidence_map = torch.from_numpy(confidence_map_).reshape(-1, 1).numpy()
+
         focal = float(0.5 * width / np.tan(0.5 * camera_angle_x))
 
         rays = get_rays(camera_transform.float(), width, height, focal)
@@ -168,7 +186,17 @@ class Pointcloud:
         if rgb is not None:
             rgb = rgb.reshape(-1, 3)
 
-        return cls(points.numpy(), rgb.numpy() if rgb is not None else None)
+        # if confidence_map_ is not None:
+
+            # confidence_path = confidence_file_path_from_frame(frame, dataset_path)
+            # confidence = load_confidence_file(confidence_path)
+            # confidence = confidence.reshape(-1, 1)
+
+            # max_confidence = torch.max(confidence)
+            # img = img[confidence[:, 0] == max_confidence, :]
+            # img_points = img_points[confidence[:, 0] == max_confidence, :]
+
+        return cls(points.numpy(), rgb.numpy() if rgb is not None else None, confidence_map)
 
     def __add__(self, other: "Pointcloud") -> "Pointcloud":
         """
@@ -183,9 +211,16 @@ class Pointcloud:
         else:
             raise(ValueError("Cannot add pointclouds with and without colors"))
 
+        if self._confidence is not None and other._confidence is not None:
+            colors = np.concatenate([self._confidence, other._confidence], axis=0)
+        elif self._confidence is None and other._confidence is None:
+            colors = None
+        else:
+            raise(ValueError("Cannot add pointclouds with and without confidence"))
+
         return Pointcloud(points, colors)
 
-    def centre_of_mass(self):
+    def centre_of_mass(self) -> np.ndarray:
         """
         Returns the centre of mass of the pointcloud
         """
@@ -235,7 +270,15 @@ def stack_pointclouds(pointclouds: List[Pointcloud]) -> Pointcloud:
     else:
         raise(ValueError("Cannot add pointclouds with and without colors"))
 
-    pcd = Pointcloud(points, colors)
+    if all(pc._confidence is not None for pc in pointclouds):
+        # colors = np.concatenate([pc._confidence for pc in pointclouds], axis=0)  # type: ignore
+        confidence = torch.concat([pcd.as_torch_tensor()[2] for pcd in pointclouds], dim=0).numpy()  # type: ignore
+    elif all(pc._confidence is None for pc in pointclouds):
+        confidence = None
+    else:
+        raise(ValueError("Cannot add pointclouds with and without confidence"))
+
+    pcd = Pointcloud(points, colors, confidence)
 
     return pcd
 
