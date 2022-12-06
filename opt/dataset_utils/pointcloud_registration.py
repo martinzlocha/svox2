@@ -152,7 +152,7 @@ def build_edge_candidates(fragment_data: List[ParentFrame], no_loop_closure_with
     for source_id in trange(len(fragment_data) - 1, desc="Loop candidates"):
         last_loop_closure = source_id
         source_pcd = fragment_data[source_id].pointcloud.as_open3d_tensor(device=device)
-        for target_id in range(source_id + no_loop_closure_within_frames, len(fragment_data) - 1):
+        for target_id in range(source_id + no_loop_closure_within_frames, len(fragment_data)):
             if target_id < last_loop_closure + no_loop_closure_within_frames:
                 continue
 
@@ -216,7 +216,6 @@ def build_pose_graph(edge_candidates: List[EdgeCandidate], registration_results:
     pose_graph.nodes.append(o3d.pipelines.registration.PoseGraphNode(odometry))
 
     for registration_result, edge_candidate in zip(registration_results, tqdm(edge_candidates)):
-        print(f"Adding edge {edge_candidate.source_id} -> {edge_candidate.target_id}")
         if registration_result is None:
             if edge_candidate.edge_type == "loop":
                 continue
@@ -313,6 +312,8 @@ def run_full_icp(dataset_dir: str,
             criteria,
             option)
 
+    print("Done optimizing pose graph")
+
     # for source_id in tqdm(range(n_pcds)):
     #     source_pcd = pcds[source_id].pointcloud.as_open3d_tensor(estimate_normals=True, device=device)
     #     # source_trans_inv = invert_transformation_matrix(pcds[source_id].transform_matrix)
@@ -369,8 +370,8 @@ def run_full_icp(dataset_dir: str,
 
 
     # for parent_frame, node in zip(frame_data, pose_graph.nodes):
-    for i in range(len(frame_data)):
-        parent_frame = frame_data[i]
+    for i in range(len(fragment_data)):
+        parent_frame = fragment_data[i]
         node = pose_graph.nodes[i]
         parent_frame.transform_matrix = node.pose @ parent_frame.transform_matrix
 
