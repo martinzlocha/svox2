@@ -83,7 +83,10 @@ class DatasetBase:
         assert origins.size(dim=0) == depths.size(dim=0)
         assert depths.dim() == 2
 
-        self.rays_init = Rays(origins=origins, dirs=dirs, gt=gt, depths=depths)
+        indices = torch.arange(self.gt.size(dim=0)).expand(-1, self.h * self.w).contiguous().reshape(-1)
+        assert indices.size(dim=0) == origins.size(dim=0)
+
+        self.rays_init = Rays(origins=origins, dirs=dirs, gt=gt, depths=depths, indices=indices)
         self.rays = self.rays_init
 
     def get_image_size(self, i : int):

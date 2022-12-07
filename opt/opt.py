@@ -457,6 +457,8 @@ if args.enable_random:
 
 epoch_id = -1
 
+color_correction = torch.nn.Parameter(torch.zeros(dset.n_images, 3))
+
 while True:
     dset.shuffle_rays()
     epoch_id += 1
@@ -587,6 +589,7 @@ while True:
             batch_dirs = dset.rays.dirs[batch_begin: batch_end].to(device=device)
             batch_depths = dset.rays.depths[batch_begin: batch_end].to(device=device)
             rgb_gt = dset.rays.gt[batch_begin: batch_end].to(device=device)
+            indices = dset.rays.indices[batch_begin: batch_end].to(device=device)
             rays = svox2.Rays(batch_origins, batch_dirs, batch_depths)
 
             lambda_sparsity = args.lambda_sparsity
@@ -604,6 +607,9 @@ while True:
                     beta_loss=args.lambda_beta,
                     sparsity_loss=lambda_sparsity,
                     randomize=args.enable_random)
+
+            # Attempt to correct for differences in light of each image
+            rgb_pred += color_correction[indices]
 
             #  with Timing("loss_comp"):
             mse = F.mse_loss(rgb_gt, rgb_pred)
@@ -658,7 +664,8 @@ while True:
                         "lr_sigma": lr_sigma,
                         "lr_basis": lr_basis,
                         "voxels": torch.count_nonzero(grid.density_data > args.density_thresh),
-                        "total_voxels": grid.density_data.size(dim=0)
+                        "total_voxels": grid.density_data.size(dim=0),
+                        "color_correction": torch.mean(color_correction),
                     }, step=gstep_id)
 
             #  # For outputting the % sparsity of the gradient

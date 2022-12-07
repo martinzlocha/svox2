@@ -18,23 +18,27 @@ class Rays:
     dirs: torch.Tensor
     gt: torch.Tensor
     depths: torch.Tensor
+    indices: torch.Tensor
 
     def to(self, *args, **kwargs):
         assert self.depths.dim() == 2
         assert self.origins.size(dim=0) == self.depths.size(dim=0)
+        assert self.origins.size(dim=0) == self.indices.size(dim=0)
 
         origins = self.origins.to(*args, **kwargs)
         dirs = self.dirs.to(*args, **kwargs)
         gt = self.gt.to(*args, **kwargs)
         depths = self.depths.to(*args, **kwargs)
-        return Rays(origins, dirs, gt, depths)
+        indices = self.indices.to(*args, **kwargs)
+        return Rays(origins, dirs, gt, depths, indices)
 
     def __getitem__(self, key):
         origins = self.origins[key]
         dirs = self.dirs[key]
         gt = self.gt[key]
         depths = self.depths[key]
-        return Rays(origins, dirs, gt, depths)
+        indices = self.indices[key]
+        return Rays(origins, dirs, gt, depths, indices)
 
     def __len__(self):
         return self.origins.size(0)
