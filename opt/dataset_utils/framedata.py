@@ -3,6 +3,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 
 import open3d as o3d
+import cv2
 
 if o3d.__DEVICE_API__ == 'cuda':
     import open3d.cuda.pybind.t.pipelines.registration as treg
@@ -78,11 +79,6 @@ class ParentFrame:
 
         self.pointcloud = stack_pointclouds([frame.pointcloud for frame in frames])
 
-        # self.pointcloud = frames[0].pointcloud
-        # # Aggregate point clouds
-        # for frame in frames[1:]:
-        #     self.pointcloud = self.pointcloud + frame.pointcloud
-
     def get_all_frame_transforms(self) -> List[np.ndarray]:
         """Uses original transforms and ICP to compute transforms for all frames in group."""
 
@@ -98,7 +94,6 @@ class ParentFrame:
         voxel_sizes = o3d.utility.DoubleVector([0.2, 0.09, 0.03, 0.008, 0.002])
         max_correspondence_distances = o3d.utility.DoubleVector([0.4, 0.2, 0.09, 0.04, 0.01])
         # new_pose_0 -> default
-        trans_inv = invert_transformation_matrix(self.transform_matrix)
         transforms = [self.transform_matrix]
         for frame in self.frames[1:]:
             # new_pose_0 -> old_pose_i
@@ -120,6 +115,14 @@ class ParentFrame:
             "frame_ids": [frame.frame_data["image_id"] for frame in self.frames],
             "transform_matrix": self.transform_matrix.tolist(),
         }
+
+    # TODO: what's the type of SIFT matcher?
+    def compute_descriptors(self, sift) -> None:
+        rgb = self.frames[0].rgb
+        kp = sift.detect(rgb, None)
+        kp, des = sift.compute(rgb, kp)
+        self.keypoints = kp
+        self.descriptors = des
 
     @classmethod
     def from_dict(cls, data: Dict, frames: Dict[int, FrameData]) -> "ParentFrame":

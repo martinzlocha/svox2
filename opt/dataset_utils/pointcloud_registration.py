@@ -141,13 +141,58 @@ def _load_transforms_json(dataset_dir: str, json_file_name: str) -> Dict[str, An
         json_data = json.load(f)
     return json_data
 
+def get_fragement_descriptor_distance(source: ParentFrame,
+                                      target: ParentFrame,
+                                      matcher,
+                                      top_match_count: int = 10) -> bool:
+    """Takes best top_match_count matches returns average distance."""
+    matches = matcher.match(source.descriptors,
+                            target.descriptors)
+    if not matches:
+        return -1.
 
-def build_edge_candidates(fragment_data: List[ParentFrame], no_loop_closure_within_frames: int) -> List[EdgeCandidate]:
+    get_distance = lambda x: x.distance
+    matches = sorted(matches, key = get_distance)[:top_match_count]
+    average_dist = sum(map(get_distance, matches)) / min(len(matches), top_match_count)
+    return average_dist
+
+def fragments_covisible(source: ParentFrame,
+                        target: ParentFrame,
+                        matcher,
+                        threshold: float,
+                        top_match_count: int = 10) -> bool: 
+    distance = get_fragement_descriptor_distance(source,
+                                                 target,
+                                                 matcher,
+                                                 top_match_count)
+    return distance < threshold
+
+def build_edge_candidates(fragment_data: List[ParentFrame],
+                          no_loop_closure_within_frames: int,
+                          covisibiliy_edge_candidates: bool) -> List[EdgeCandidate]:
     edge_candidates = []
+    if covisibiliy_edge_candidates:
+        matcher = cv2.BFMatcher(cv2.NORM_L2, crossCheck=True)
+        distance_mean, distance_squared_mean = 0., 0.
+        odometry_match_count = 0
 
     # odometry candidates
     for source_id in trange(len(fragment_data) - 1, desc="Odometry candidates"):
         edge_candidates.append(EdgeCandidate(source_id, source_id+1, "odometry"))
+        if covisibiliy_edge_candidates:
+            descriptor_distance = get_fragement_descriptor_distance(fragment_data[source_id],
+                                                                    fragment_data[source_id + 1],
+                                                                    matcher)
+            if descriptor_distance >= 0.:
+                odometry_match_count += 1
+                distance_mean += descriptor_distance
+                distance_squared_mean += descriptor_distance**2
+    
+    if covisibiliy_edge_candidates:
+        distance_mean /= odometry_match_count
+        distance_squared_mean /= odometry_match_count
+        distance_sigma = np.sqrt(distance_squared_mean - distance_mean**2)
+        match_threshold = distance_mean + distance_sigma
 
     for source_id in trange(len(fragment_data) - 1, desc="Loop candidates"):
         last_loop_closure = source_id
@@ -157,7 +202,13 @@ def build_edge_candidates(fragment_data: List[ParentFrame], no_loop_closure_with
                 continue
 
             target_pcd = fragment_data[target_id].pointcloud.as_open3d_tensor(device=device)
-            if should_add_edge_intersection(source_pcd, target_pcd):
+            should_add_edge = should_add_edge_intersection(source_pcd, target_pcd)
+            if covisibiliy_edge_candidates:
+                should_add_edge = should_add_edge and fragments_covisible(fragment_data[source_id],
+                                                                          fragment_data[target_id],
+                                                                          matcher,
+                                                                          match_threshold)
+            if should_add_edge:
                 edge_candidates.append(EdgeCandidate(source_id, target_id, "loop"))
                 last_loop_closure = target_id
 
@@ -241,6 +292,7 @@ def run_full_icp(dataset_dir: str,
                  max_correspondence_distance: float = 0.4,
                  pose_graph_optimization_iterations: int = 300,
                  no_loop_closure_within_frames: int = 12,
+                 covisibility_edge_candidates: bool = True,
                  frames_per_cluster: int = 1) -> None:
     # CONFIG
     json_file_name = 'transforms_train.json'
@@ -250,25 +302,36 @@ def run_full_icp(dataset_dir: str,
     # ICP
     json_data = _load_transforms_json(dataset_dir, json_file_name)
     frame_data = load_frame_data_from_dataset(dataset_dir, transforms_train)
+    if max_fragments:
+        frame_data = frame_data[:max_fragments * frames_per_cluster]
     print("clustering frames...")
     fragment_data = cluster_frame_data(frame_data, frames_per_cluster=frames_per_cluster)
-    if max_fragments is not None:
-        fragment_data = fragment_data[:max_fragments]  # debug
+    
+    if covisibility_edge_candidates:
+        tic = time.time()
+        print("pre-computing SIFT features...")
+        for fragment in tqdm(fragment_data):
+            # TODO: multi-thread this
+            sift = cv2.SIFT_create()
+            fragment.compute_descriptors(sift)
 
-    print("precomputing pointclouds...")
+        toc = time.time()
+        print(f"pre-computing SIFT features took {toc-tic:.2f}s")
+
+    print("pre-computing pointclouds...")
     tic = time.time()
     for fragment in tqdm(fragment_data):
         # TODO: multi-thread this
         fragment.pointcloud = fragment.pointcloud.take_only_with_max_confidence()  # confidence pruning
         fragment.pointcloud.as_open3d_tensor(estimate_normals=True, device=device)  # subesquent calls will be cached
     toc = time.time()
-    print(f'precomputing pointclouds took {toc-tic:.2f}s')
+    print(f'pre-computing pointclouds took {toc-tic:.2f}s')
 
     # get edge candidates
     # time build_edge_candidates
     print("building edge candidates...")
     tic = time.time()
-    edge_candidates = build_edge_candidates(fragment_data, no_loop_closure_within_frames)
+    edge_candidates = build_edge_candidates(fragment_data, no_loop_closure_within_frames, covisibility_edge_candidates)
     toc = time.time()
     print(f'build_edge_candidates took {toc-tic:.2f}s')
 
