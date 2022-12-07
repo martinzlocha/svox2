@@ -1,5 +1,6 @@
 from collections import namedtuple
 from dataclasses import dataclass
+import multiprocessing
 import time
 import open3d as o3d
 
@@ -21,6 +22,7 @@ import torch
 import cv2
 from dataset_utils.aabb_iou import aabb_intersection_ratios_open3d
 from dataset_utils.framedata import FrameData, ParentFrame, load_frame_data_from_dataset, invert_transformation_matrix
+from joblib import Parallel, delayed
 
 
 class PairwiseRegistrationLog:
@@ -160,7 +162,7 @@ def fragments_covisible(source: ParentFrame,
                         target: ParentFrame,
                         matcher,
                         threshold: float,
-                        top_match_count: int = 10) -> bool: 
+                        top_match_count: int = 10) -> bool:
     distance = get_fragement_descriptor_distance(source,
                                                  target,
                                                  matcher,
@@ -187,7 +189,7 @@ def build_edge_candidates(fragment_data: List[ParentFrame],
                 odometry_match_count += 1
                 distance_mean += descriptor_distance
                 distance_squared_mean += descriptor_distance**2
-    
+
     if covisibiliy_edge_candidates:
         distance_mean /= odometry_match_count
         distance_squared_mean /= odometry_match_count
@@ -297,7 +299,8 @@ def run_full_icp(dataset_dir: str,
     # CONFIG
     json_file_name = 'transforms_train.json'
     transforms_train = os.path.join(dataset_dir, json_file_name)
-    max_fragments = 200 # debug, set to None to disable
+    max_fragments = 400 # debug, set to None to disable
+    n_cpus = multiprocessing.cpu_count()
 
     # ICP
     json_data = _load_transforms_json(dataset_dir, json_file_name)
@@ -306,7 +309,7 @@ def run_full_icp(dataset_dir: str,
         frame_data = frame_data[:max_fragments * frames_per_cluster]
     print("clustering frames...")
     fragment_data = cluster_frame_data(frame_data, frames_per_cluster=frames_per_cluster)
-    
+
     if covisibility_edge_candidates:
         tic = time.time()
         print("pre-computing SIFT features...")
@@ -320,11 +323,16 @@ def run_full_icp(dataset_dir: str,
 
     print("pre-computing pointclouds...")
     tic = time.time()
-    for fragment in tqdm(fragment_data):
-        # TODO: multi-thread this
+    def _precompute_pointcloud(fragment: ParentFrame):
         fragment.pointcloud = fragment.pointcloud.take_only_with_max_confidence()  # confidence pruning
-        fragment.pointcloud.as_open3d_tensor(estimate_normals=True, device=device)  # subesquent calls will be cached
+        fragment.pointcloud.as_open3d_tensor(estimate_normals=True, device=device)
+
+    with Parallel(n_jobs=n_cpus//2, verbose=1, require='sharedmem') as parallel:
+        # paralel execution will most probably help only on a machine with GPU
+        # TODO: can we use tqdm?
+        parallel(delayed(_precompute_pointcloud)(fragment) for fragment in fragment_data)
     toc = time.time()
+    del _precompute_pointcloud
     print(f'pre-computing pointclouds took {toc-tic:.2f}s')
 
     # get edge candidates
