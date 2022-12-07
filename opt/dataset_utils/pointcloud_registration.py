@@ -312,12 +312,20 @@ def run_full_icp(dataset_dir: str,
 
     if covisibility_edge_candidates:
         tic = time.time()
-        print("pre-computing SIFT features...")
-        for fragment in tqdm(fragment_data):
-            # TODO: multi-thread this
+        def _precompute_sift(fragment: ParentFrame):
             sift = cv2.SIFT_create()
             fragment.compute_descriptors(sift)
+        print("pre-computing SIFT features...")
+        with Parallel(n_jobs=n_cpus, verbose=1, require='sharedmem') as parallel:
+            # can we use tqdm?
+            parallel(delayed(_precompute_sift)(fragment) for fragment in fragment_data)
 
+        # for fragment in tqdm(fragment_data):
+        #     # TODO: multi-thread this
+        #     sift = cv2.SIFT_create()
+        #     fragment.compute_descriptors(sift)
+
+        del _precompute_sift
         toc = time.time()
         print(f"pre-computing SIFT features took {toc-tic:.2f}s")
 
