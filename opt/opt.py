@@ -602,14 +602,14 @@ while True:
             if gstep_id % 12800 == 0:
               print(f'Lambda sparsity: {lambda_sparsity}')
 
+            # Attempt to correct for differences in light of each image
+            rgb_gt += color_correction[indices]
+
             #  with Timing("volrend_fused"):
             rgb_pred = grid.volume_render_fused(rays, rgb_gt,
                     beta_loss=args.lambda_beta,
                     sparsity_loss=lambda_sparsity,
                     randomize=args.enable_random)
-
-            # Attempt to correct for differences in light of each image
-            rgb_pred += color_correction[indices]
 
             #  with Timing("loss_comp"):
             mse = F.mse_loss(rgb_gt, rgb_pred)
