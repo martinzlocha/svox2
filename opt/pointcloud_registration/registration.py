@@ -1,6 +1,7 @@
 import multiprocessing
 import time
 from dataclasses import dataclass
+from dataset_utils.point_cloud import Pointcloud
 
 import open3d as o3d
 
@@ -136,9 +137,9 @@ def pairwise_registration(source, target, trans_init, cfg: RegistrationConfig):
 
     return transformation_icp, information_icp, iteration_data
 
-def iou_overlaps(pcd1: o3d.t.geometry.PointCloud,
-                                 pcd2: o3d.t.geometry.PointCloud,
-                                 iou_threshold = 0.99) -> bool:
+def iou_overlaps(pcd1: Pointcloud,
+                 pcd2: Pointcloud,
+                 iou_threshold = 0.99) -> bool:
     bounding_box1 = pcd1.get_axis_aligned_bounding_box()
     bounding_box2 = pcd2.get_axis_aligned_bounding_box()
     iou, aabb1_intersection_ratio, aabb2_intersection_ratio = aabb_intersection_ratios_open3d(bounding_box1, bounding_box2)
@@ -215,7 +216,7 @@ def build_edge_candidates(fragment_data: List[ParentFrame],
 
     for source_id in trange(len(fragment_data) - 1, desc="Loop candidates"):
         last_loop_closure = source_id
-        source_pcd = fragment_data[source_id].pointcloud.as_open3d_tensor(device=device)
+        # source_pcd = fragment_data[source_id].pointcloud.as_open3d_tensor(device=device)
         for target_id in range(source_id + cfg.no_loop_closure_within_frames, len(fragment_data)):
             if target_id < last_loop_closure + cfg.no_loop_closure_within_frames:
                 # TODO: we might want to deprecate this
@@ -223,8 +224,8 @@ def build_edge_candidates(fragment_data: List[ParentFrame],
 
             should_add_edge = True
             if cfg.use_iou:
-                target_pcd = fragment_data[target_id].pointcloud.as_open3d_tensor(device=device)
-                should_add_edge = should_add_edge and iou_overlaps(source_pcd, target_pcd, cfg.iou_threshold)
+                # target_pcd = fragment_data[target_id].pointcloud.as_open3d_tensor(device=device)
+                should_add_edge = should_add_edge and iou_overlaps(fragment_data[source_id].pointcloud, fragment_data[target_id].pointcloud, cfg.iou_threshold)
 
             if cfg.use_covisibility:
                 should_add_edge = should_add_edge and fragments_covisible(fragment_data[source_id],
@@ -278,7 +279,7 @@ def register_candidates(fragment_data: List[ParentFrame],
             )
         else:
             registration_result = None
-            if edge_candidate.edge_type == "odometry":
+            if edge_candidate.edge_type == "odometry" and cfg.rolling_odometry_init:
                 init_transform = odometry_init
             else:
                 init_transform = np.eye(4)
