@@ -21,7 +21,7 @@ from tqdm import tqdm, trange
 import torch
 import cv2
 from dataset_utils.aabb_iou import aabb_intersection_ratios_open3d
-from dataset_utils.framedata import FrameData, ParentFrame, load_frame_data_from_dataset, invert_transformation_matrix
+from pointcloud_registration.framedata import FrameData, ParentFrame, load_frame_data_from_dataset, invert_transformation_matrix
 from joblib import Parallel, delayed
 
 

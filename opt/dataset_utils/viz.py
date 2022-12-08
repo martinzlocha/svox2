@@ -1,6 +1,6 @@
 from functools import partial
 import json
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 import numpy as np
 import open3d as o3d
 import open3d.visualization.gui as gui

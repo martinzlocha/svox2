@@ -3,7 +3,6 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 
 import open3d as o3d
-import cv2
 
 if o3d.__DEVICE_API__ == 'cuda':
     import open3d.cuda.pybind.t.pipelines.registration as treg
