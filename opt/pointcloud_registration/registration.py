@@ -248,51 +248,88 @@ class RegistrationResult:
 
 def register_pointclouds(fragment_data: List[ParentFrame], edge_candidate: EdgeCandidate,
                          init_transform: np.ndarray, cfg: RegistrationConfig) -> Optional[RegistrationResult]:
-    source_pcd = fragment_data[edge_candidate.source_id].pointcloud.as_open3d_tensor(estimate_normals=True, device=device)
-    target_pcd = fragment_data[edge_candidate.target_id].pointcloud.as_open3d_tensor(estimate_normals=True, device=device)
+    if not cfg.register_odometry_edges and edge_candidate.edge_type == "odometry":
+        transformation_icp = np.eye(4)
+        information_icp = treg.get_information_matrix(fragment_data[edge_candidate.source_id].pointcloud.as_open3d_tensor(device=device),
+                                                        fragment_data[edge_candidate.target_id].pointcloud.as_open3d_tensor(device=device),
+                                                        cfg.last_correspondence_distance(),
+                                                        transformation_icp).numpy()
+        registration_result = RegistrationResult(
+            transformation_icp,
+            information_icp,
+            [],
+        )
+    else:
+        source_pcd = fragment_data[edge_candidate.source_id].pointcloud.as_open3d_tensor(estimate_normals=True, device=device)
+        target_pcd = fragment_data[edge_candidate.target_id].pointcloud.as_open3d_tensor(estimate_normals=True, device=device)
+
+        transformation_icp, information_icp, iteration_data = None, None, None  # silencing linter
+        for _ in range(10):
+            # TODO add to config
+            transformation_icp, information_icp, iteration_data = pairwise_registration(source_pcd, target_pcd, init_transform, cfg)
+            if edge_candidate.edge_type == "loop" or (transformation_icp is not None and information_icp is not None and iteration_data is not None):
+                break
+
+        if transformation_icp is None or information_icp is None or iteration_data is None:
+            return None
+
+        registration_result = RegistrationResult(transformation_icp, information_icp, iteration_data)
+
+    return registration_result
+
+def register_pointclouds_bare(source_pcd: o3d.t.geometry.PointCloud, target_pcd: o3d.t.geometry.PointCloud,
+                              init_transform: np.ndarray, edge_type: Literal["loop", "odometry"], cfg: RegistrationConfig) -> Optional[RegistrationResult]:
+    if edge_type == "odometry":
+        raise NotImplementedError("Bare odometry registration is not implemented yet")
 
     transformation_icp, information_icp, iteration_data = pairwise_registration(source_pcd, target_pcd, init_transform, cfg)
     if transformation_icp is None or information_icp is None or iteration_data is None:
-        return None
+            return None
 
-    return RegistrationResult(transformation_icp, information_icp, iteration_data)
+    registration_result = RegistrationResult(transformation_icp, information_icp, iteration_data)
 
+    return registration_result
+
+def parallel_register_loop_candidates(fragment_data: List[ParentFrame],
+                                      edge_candidates: List[EdgeCandidate],
+                                      cfg: RegistrationConfig) -> Tuple[List[Optional[RegistrationResult]], List[PairwiseRegistrationLog]]:
+    n_cpus = multiprocessing.cpu_count()
+    registration_results = Parallel(n_jobs=n_cpus, verbose=1)(
+        delayed(register_pointclouds_bare)(
+            fragment_data[edge_candidate.source_id].pointcloud.as_open3d_tensor(estimate_normals=True, device=device),
+            fragment_data[edge_candidate.target_id].pointcloud.as_open3d_tensor(estimate_normals=True, device=device),
+            np.eye(4), "loop", cfg) for edge_candidate in edge_candidates)
+
+    assert registration_results is not None
+
+    registration_logs = [PairwiseRegistrationLog(
+        fragment_data[edge_candidate.source_id],
+        fragment_data[edge_candidate.target_id],
+        registration_result.transformation,
+        edge_candidate.edge_type,
+        registration_result.iteration_data)
+        for edge_candidate, registration_result in zip(edge_candidates, registration_results) if registration_result is not None]
+
+    return registration_results, registration_logs
 
 def register_candidates(fragment_data: List[ParentFrame],
                         edge_candidates: List[EdgeCandidate],
-                        cfg: RegistrationConfig) -> Tuple[List[RegistrationResult], List[PairwiseRegistrationLog]]:
+                        cfg: RegistrationConfig) -> Tuple[List[Optional[RegistrationResult]], List[PairwiseRegistrationLog]]:
     # TODO: multi-thread this
     registration_results = []
     registration_logs = []
     odometry_init = np.eye(4)
-    for edge_candidate in tqdm(edge_candidates):
-        if not cfg.register_odometry_edges and edge_candidate.edge_type == "odometry":
-            transformation_icp = np.eye(4)
-            information_icp = treg.get_information_matrix(fragment_data[edge_candidate.source_id].pointcloud.as_open3d_tensor(device=device),
-                                                          fragment_data[edge_candidate.target_id].pointcloud.as_open3d_tensor(device=device),
-                                                          cfg.last_correspondence_distance(),
-                                                          transformation_icp).numpy()
-            registration_result = RegistrationResult(
-                transformation_icp,
-                information_icp,
-                [],
-            )
-        else:
-            registration_result = None
-            if edge_candidate.edge_type == "odometry" and cfg.rolling_odometry_init:
-                init_transform = odometry_init
-            else:
-                init_transform = np.eye(4)
-            for _ in range(10):  # retry a couple of times as the process is stochastic
-                registration_result = register_pointclouds(fragment_data, edge_candidate, init_transform, cfg)
-                if registration_result is not None or edge_candidate.edge_type == "loop":
-                    break
+    odometry_candidates = [edge_candidate for edge_candidate in edge_candidates if edge_candidate.edge_type == "odometry"]
+    loop_candidates = [edge_candidate for edge_candidate in edge_candidates if edge_candidate.edge_type == "loop"]
 
-            if registration_result is None and edge_candidate.edge_type == "odometry":
+    for edge_candidate in tqdm(odometry_candidates, desc="odometry"):
+        registration_result = register_pointclouds(fragment_data, edge_candidate, odometry_init, cfg)
+
+        if registration_result is None and edge_candidate.edge_type == "odometry":
                 raise RuntimeError("No correspondence found for the odometry case")
 
-            if registration_result is not None and edge_candidate.edge_type == "odometry":
-                odometry_init = registration_result.transformation
+        if registration_result is not None and edge_candidate.edge_type == "odometry" and cfg.rolling_odometry_init:
+            odometry_init = registration_result.transformation
 
         registration_results.append(registration_result)
         if registration_result is not None:
@@ -304,10 +341,14 @@ def register_candidates(fragment_data: List[ParentFrame],
                 registration_result.iteration_data,
             ))
 
+    loop_registration_results, loop_registration_logs = parallel_register_loop_candidates(fragment_data, loop_candidates, cfg)
+    registration_results.extend(loop_registration_results)
+    registration_logs.extend(loop_registration_logs)
+
     return registration_results, registration_logs
 
 
-def build_pose_graph(edge_candidates: List[EdgeCandidate], registration_results: List[RegistrationResult]) -> o3d.pipelines.registration.PoseGraph:
+def build_pose_graph(edge_candidates: List[EdgeCandidate], registration_results: List[Optional[RegistrationResult]]) -> o3d.pipelines.registration.PoseGraph:
     if len(edge_candidates) != len(registration_results):
         raise RuntimeError("The number of edge candidates and registration results must be the same")
 
@@ -413,6 +454,7 @@ def run_full_icp(dataset_dir: str,
         "transforms_json_file": json_file_name,
         "pairwise_registrations": pairwise_registrations_logs,
     }
+    os.makedirs(save_dir, exist_ok=True)
     with open(os.path.join(save_dir, 'pairwise_registrations.json'), 'w') as f:
         json.dump(registration_data, f, indent=4)
 
@@ -486,7 +528,7 @@ def get_transformation_mat(source, target, steps=200):
 
 def run_sift(dataset_dir: str,
              top_match_limit: int = 200) -> None:
-    n_pcds = 100
+    n_pcds = 200
     transforms_train = os.path.join(dataset_dir,
                                     'transforms_train.json')
     with open(transforms_train, 'r') as f:
