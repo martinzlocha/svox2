@@ -290,15 +290,22 @@ def register_pointclouds_bare(source_pcd: o3d.t.geometry.PointCloud, target_pcd:
 
     return registration_result
 
-def parallel_register_loop_candidates(fragment_data: List[ParentFrame],
+def register_loop_candidates(fragment_data: List[ParentFrame],
                                       edge_candidates: List[EdgeCandidate],
                                       cfg: RegistrationConfig) -> Tuple[List[Optional[RegistrationResult]], List[PairwiseRegistrationLog]]:
-    n_cpus = multiprocessing.cpu_count()
-    registration_results = Parallel(n_jobs=n_cpus, verbose=1)(
-        delayed(register_pointclouds_bare)(
-            fragment_data[edge_candidate.source_id].pointcloud.as_open3d_tensor(estimate_normals=True, device=device),
-            fragment_data[edge_candidate.target_id].pointcloud.as_open3d_tensor(estimate_normals=True, device=device),
-            np.eye(4), "loop", cfg) for edge_candidate in edge_candidates)
+    all_args = [
+        [fragment_data[edge_candidate.source_id].pointcloud.as_open3d_tensor(estimate_normals=True, device=device),
+        fragment_data[edge_candidate.target_id].pointcloud.as_open3d_tensor(estimate_normals=True, device=device),
+        np.eye(4), "loop", cfg] for edge_candidate in edge_candidates
+    ]
+
+    if device == o3d.core.Device("CPU:0"):
+        # if we are on CPU, we probably don't want to paralelise
+        registration_results = [register_pointclouds_bare(*args) for args in all_args]
+    else:
+        n_cpus = multiprocessing.cpu_count()
+        registration_results = Parallel(n_jobs=n_cpus, verbose=1)(
+            delayed(register_pointclouds_bare)(*args) for args in all_args)
 
     assert registration_results is not None
 
@@ -341,7 +348,7 @@ def register_candidates(fragment_data: List[ParentFrame],
                 registration_result.iteration_data,
             ))
 
-    loop_registration_results, loop_registration_logs = parallel_register_loop_candidates(fragment_data, loop_candidates, cfg)
+    loop_registration_results, loop_registration_logs = register_loop_candidates(fragment_data, loop_candidates, cfg)
     registration_results.extend(loop_registration_results)
     registration_logs.extend(loop_registration_logs)
 
