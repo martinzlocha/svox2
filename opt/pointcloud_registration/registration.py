@@ -301,7 +301,7 @@ def register_loop_candidates(fragment_data: List[ParentFrame],
 
     if device == o3d.core.Device("CPU:0"):
         # if we are on CPU, we probably don't want to paralelise
-        registration_results = [register_pointclouds_bare(*args) for args in all_args]
+        registration_results = [register_pointclouds_bare(*args) for args in tqdm(all_args, desc="loop")]
     else:
         n_cpus = multiprocessing.cpu_count()
         registration_results = Parallel(n_jobs=n_cpus, verbose=1)(
@@ -394,7 +394,7 @@ def run_full_icp(dataset_dir: str,
     # CONFIG
     json_file_name = 'transforms_train.json'
     transforms_train = os.path.join(dataset_dir, json_file_name)
-    max_fragments = 200 # debug, set to None to disable
+    max_fragments = 50 # debug, set to None to disable
     n_cpus = multiprocessing.cpu_count()
 
     # ICP
