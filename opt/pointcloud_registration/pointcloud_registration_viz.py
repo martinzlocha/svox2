@@ -2,8 +2,8 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 from dataset_utils.abstract_viz import AbstractViz
-from pointcloud_registration.framedata import FrameData, load_frame_data_from_dataset
-from pointcloud_registration.pointcloud_registration import PairwiseRegistrationLog
+from dataset_utils.framedata import FrameData, load_frame_data_from_dataset
+from pointcloud_registration.registration import PairwiseRegistrationLog
 from typing import Dict, List, Optional
 from fire import Fire
 import open3d.visualization.gui as gui

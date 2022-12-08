@@ -3,12 +3,11 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Literal
 import open3d as o3d
 if o3d.__DEVICE_API__ == 'cuda':
-    import open3d.cuda.pybind.t.pipelines.registration as treg
-    device = o3d.core.Device("CUDA:0")
+    import open3d.cuda.pybind.t.pipelines.registration as treg  # type: ignore
+    device = o3d.core.Device("CUDA:0")  # type: ignore
 else:
-    import open3d.cpu.pybind.t.pipelines.registration as treg
-    device = o3d.core.Device("CPU:0")
-import json
+    import open3d.cpu.pybind.t.pipelines.registration as treg  # type: ignore
+    device = o3d.core.Device("CPU:0")  # type: ignore
 
 
 # FRAME CLUSTERING CONFIG
@@ -24,6 +23,7 @@ class FrameClusteringConfig:
 @dataclass
 class EdgeCandidatesConfig:
     use_covisibility: bool
+    no_loop_closure_within_frames: int
     use_iou: bool
     iou_threshold: float
 
@@ -111,7 +111,7 @@ class RegistrationConfig:
     estimation: Estimation
     convergence_criteria: ConvergenceCriteria
     voxel_sizes: DoubleVector
-    max_correspondence_distance: DoubleVector
+    max_correspondence_distances: DoubleVector
 
     @classmethod
     def from_dict(cls, config_data: Dict) -> "RegistrationConfig":
@@ -120,16 +120,17 @@ class RegistrationConfig:
             Estimation.from_dict(config_data["estimation"]),
             ConvergenceCriteria.from_dict(config_data["convergence_criteria"]),
             DoubleVector(config_data["voxel_sizes"]),
-            DoubleVector(config_data["max_correspondence_distance"]),
+            DoubleVector(config_data["max_correspondence_distances"]),
         )
 
     def last_correspondence_distance(self):
-        return self.max_correspondence_distance.values[-1]
+        return self.max_correspondence_distances.values[-1]
 
 # GLOBAL OPTIMIZATION CONFIG
 @dataclass
 class GlobalOptimizationConfig:
-    pass
+    max_iterations: int
+
 
 # PIPELINE CONFIG
 @dataclass
@@ -147,5 +148,5 @@ class PipelineConfig:
             config_data["use_only_max_confidence_pointcloud"],
             EdgeCandidatesConfig.from_dict(config_data["edge_candidates"]),
             RegistrationConfig.from_dict(config_data["registration"]),
-            GlobalOptimizationConfig.from_dict(config_data["global_optimization"]),
+            GlobalOptimizationConfig(**config_data["global_optimization"]),
         )
