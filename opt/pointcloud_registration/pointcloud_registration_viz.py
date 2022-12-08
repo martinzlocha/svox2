@@ -32,14 +32,18 @@ class RegistrationViz(AbstractViz):
         self.add_settings_panel_section('pairwise_registration', 'Pairwise Registration')
         self.slider = self.add_slider_selection('pairwise_registration', (0, len(registrations) - 1), self.change_pairwise_registration_slider)
 
-        self.label_source_id = gui.Label(f'Source ID: {self.pairwise_registrations[0].source.frames[0].frame_data["image_id"]}')
-        self.label_target_id = gui.Label(f'Target ID: {self.pairwise_registrations[0].target.frames[0].frame_data["image_id"]}')
-        self.label_type = gui.Label(f'Type: {self.pairwise_registrations[0].edge_type}')
+        self.label_source_id = gui.Label(f'Source ID: default')
+        self.label_target_id = gui.Label(f'Target ID: default')
+        self.label_type = gui.Label(f'Type: default')
+        self.label_fitness = gui.Label(f'Fitness: default')
+        self.label_rmse = gui.Label(f'RMSE: default')
         self.matrix_label_rows = None
 
         self.add_settings_panel_child("pairwise_registration", self.label_source_id)
         self.add_settings_panel_child("pairwise_registration", self.label_target_id)
         self.add_settings_panel_child("pairwise_registration", self.label_type)
+        self.add_settings_panel_child("pairwise_registration", self.label_fitness)
+        self.add_settings_panel_child("pairwise_registration", self.label_rmse)
         self.update_transform_matrix_label(self.pairwise_registrations[0].transform_matrix)
 
         self.iteration_slider = self.add_slider_selection('pairwise_registration', (0, 1), self.change_iteration_slider)
@@ -97,6 +101,8 @@ class RegistrationViz(AbstractViz):
         # print(iteration_data)
 
         self._scene.scene.set_geometry_transform('pairwise_registration_pcd_source', iteration_data["transformation"])
+        self.label_fitness.text = f'Fitness: {fts(iteration_data["fitness"], 3)}'
+        self.label_rmse.text = f'RMSE: {fts(iteration_data["inlier_rmse"], 3)}'
         self.update_transform_matrix_label(iteration_data["transformation"])
 
 def load_frames_dict(dataset_dir: str, json_file_name: str) -> Dict[int, FrameData]:
