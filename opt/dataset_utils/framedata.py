@@ -3,7 +3,6 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 
 import open3d as o3d
-import cv2
 
 if o3d.__DEVICE_API__ == 'cuda':
     import open3d.cuda.pybind.t.pipelines.registration as treg
@@ -135,13 +134,19 @@ class ParentFrame:
 
 
 def load_frame_data_from_dataset(dataset_dir: str,
-                                 transforms_json_file: str) -> List[FrameData]:
+                                 transforms_json_file: str,
+                                 max_frames: Optional[int] = None  # for debugging
+                                 ) -> List[FrameData]:
     with open(os.path.join(dataset_dir, transforms_json_file), "r") as f:
         transforms = json.load(f)
 
     camera_angle_x = transforms["camera_angle_x"]
 
     frames = transforms["frames"]
+
+    if max_frames is not None:
+        frames = frames[:max_frames]
+
     with ThreadPoolExecutor() as executor:
         frame_data = list(tqdm(executor.map(lambda frame: FrameData(frame,
                                                                     dataset_dir,

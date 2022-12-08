@@ -9,7 +9,6 @@ import open3d as o3d
 import open3d.visualization.gui as gui
 import open3d.visualization.rendering as rendering
 import os
-from point_cloud import Pointcloud_DEPRECATED
 from abc import ABC
 
 def shift_int_slider(slider, value: int, callback: Optional[Callable[[gui.Slider, int], None]] = None) -> None:

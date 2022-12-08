@@ -1,0 +1,53 @@
+{
+  "frame_clustering": {
+    "frames_per_cluster": 1
+  },
+  "use_only_max_confidence_pointcloud": true,
+  "edge_candidates": {
+    "use_covisibility": false,
+    "no_loop_closure_within_frames": 12,
+    "use_iou": false,
+    "iou_threshold": 0.75
+  },
+  "registration": {
+    "register_odometry_edges": true,
+    "estimation": {
+      "method": "colored",
+      "kernel": {
+        "type": "robust",
+        "args": {
+          "loss": "tukey",
+          "sigma": 0.05
+        }
+      }
+    },
+    "convergence_criteria": [
+      {
+        "relative_fitness": 1e-6,
+        "relative_rmse": 1e-6,
+        "max_iteration": 50
+      },
+      {
+        "relative_fitness": 1e-6,
+        "relative_rmse": 1e-6,
+        "max_iteration": 50
+      },
+      {
+        "relative_fitness": 1e-6,
+        "relative_rmse": 1e-6,
+        "max_iteration": 50
+      },
+      {
+        "relative_fitness": 1e-6,
+        "relative_rmse": 1e-6,
+        "max_iteration": 100
+      }
+    ],
+    "voxel_sizes": [0.1, 0.05, 0.025, 0.0125],
+    "max_correspondence_distances": [0.3, 0.2, 0.1, 0.04],
+    "rolling_odometry_init": false
+  },
+  "global_optimization": {
+    "max_iterations": 1000
+  }
+}
