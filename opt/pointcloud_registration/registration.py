@@ -394,7 +394,7 @@ def run_full_icp(dataset_dir: str,
     # CONFIG
     json_file_name = 'transforms_train.json'
     transforms_train = os.path.join(dataset_dir, json_file_name)
-    max_fragments = 50 # debug, set to None to disable
+    max_fragments = None # debug, set to None to disable
     n_cpus = multiprocessing.cpu_count()
 
     # ICP
