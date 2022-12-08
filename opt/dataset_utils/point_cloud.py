@@ -78,6 +78,7 @@ class Pointcloud:
         self._open3d_pcd = None
         self._open3d_tensor_pcd = None
         self._centre_of_mass = None
+        self._bounding_box = None
 
     def as_numpy(self) -> Tuple[np.ndarray, Optional[np.ndarray], Optional[np.ndarray]]:
         """
@@ -149,9 +150,23 @@ class Pointcloud:
         points = transformation_matrix @ points
         self._points = points[:, :3, 0].reshape(-1, 3)
         self._open3d_pcd = None
-
         self._open3d_tensor_pcd = None
         self._centre_of_mass = None
+        self._bounding_box = None
+
+    def get_axis_aligned_bounding_box(self):
+        """
+        Returns the bounding box of the pointcloud
+        """
+        if self._open3d_tensor_pcd is not None:
+            # Do not request it if not necessary as we would mess up the device
+            bounding_box = self._open3d_tensor_pcd.get_axis_aligned_bounding_box()
+        else:
+            pcd = self.as_open3d()
+            bounding_box = pcd.get_axis_aligned_bounding_box()
+
+        self._bounding_box = bounding_box
+        return bounding_box
 
     @classmethod
     def from_camera_transform(cls, camera_transform_: np.ndarray, depth_map_: np.ndarray, rgb_: Optional[np.ndarray], confidence_map_: Optional[np.ndarray], camera_angle_x: float, clipping_distance: Optional[float]=None):
