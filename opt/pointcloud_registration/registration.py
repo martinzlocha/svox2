@@ -351,9 +351,11 @@ def run_full_icp(dataset_dir: str,
 
     # ICP
     json_data = _load_transforms_json(dataset_dir, json_file_name)
-    frame_data = load_frame_data_from_dataset(dataset_dir, transforms_train)
-    if max_fragments:
-        frame_data = frame_data[:max_fragments * config.frame_clustering.frames_per_cluster]
+    if max_fragments is not None:
+        # debug
+        frame_data = load_frame_data_from_dataset(dataset_dir, transforms_train, max_frames=max_fragments * config.frame_clustering.frames_per_cluster)
+    else:
+        frame_data = load_frame_data_from_dataset(dataset_dir, transforms_train)
     print("clustering frames...")
     fragment_data = cluster_frame_data(frame_data, config.frame_clustering)
 
