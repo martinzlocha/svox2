@@ -112,6 +112,7 @@ class RegistrationConfig:
     convergence_criteria: ConvergenceCriteria
     voxel_sizes: DoubleVector
     max_correspondence_distances: DoubleVector
+    rolling_odometry_init: bool
 
     @classmethod
     def from_dict(cls, config_data: Dict) -> "RegistrationConfig":
@@ -121,6 +122,7 @@ class RegistrationConfig:
             ConvergenceCriteria.from_dict(config_data["convergence_criteria"]),
             DoubleVector(config_data["voxel_sizes"]),
             DoubleVector(config_data["max_correspondence_distances"]),
+            config_data["rolling_odometry_init"],
         )
 
     def last_correspondence_distance(self):
