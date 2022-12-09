@@ -158,6 +158,9 @@ class Pointcloud:
         """
         Returns the bounding box of the pointcloud
         """
+        if self._bounding_box is not None:
+            return self._bounding_box
+
         if self._open3d_tensor_pcd is not None:
             # Do not request it if not necessary as we would mess up the device
             bounding_box = self._open3d_tensor_pcd.get_axis_aligned_bounding_box()
