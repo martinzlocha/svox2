@@ -7,7 +7,8 @@
     "use_covisibility": false,
     "no_loop_closure_within_frames": 3,
     "use_iou": true,
-    "iou_threshold": 0.65
+    "iou_threshold": 0.65,
+    "fpfh_registration_type": "fgr"
   },
   "registration": {
     "register_odometry_edges": true,
@@ -46,7 +47,7 @@
     "voxel_sizes": [0.1, 0.05, 0.025, 0.0125],
     "max_correspondence_distances": [0.3, 0.2, 0.1, 0.035],
     "rolling_odometry_init": false,
-    "parallel_registration": true
+    "parallel_registration": false
   },
   "global_optimization": {
     "max_iterations": 1000
