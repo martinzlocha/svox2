@@ -56,6 +56,11 @@ class FrameData:
 
         self._matching = None
 
+    def get_frame_data_dict(self) -> Dict:
+        frame_data = self.frame_data.copy()
+        frame_data["transform_matrix"] = self.transform_matrix.tolist()
+        return frame_data
+
     def transform_(self, transform_matrix: np.ndarray) -> None:
         """
         In-place frame transformation
@@ -63,20 +68,27 @@ class FrameData:
         self.transform_matrix = transform_matrix @ self.transform_matrix
         self.pointcloud.transform_(transform_matrix)
 
-    def similarity_score(self, other: "FrameData") -> float:
-        # TODO: we should use covisibility matrix instead
-        # return self.matching.similarity_score(other.matching)
-        pointcloud_distance = self.pointcloud.centre_of_mass() - other.pointcloud.centre_of_mass()
-        squared_distance = np.sum(pointcloud_distance ** 2)
-
-        return 1 / (1 + squared_distance)
-
 class ParentFrame:
     def __init__(self, frames: List[FrameData]):
         self.frames = frames
         self.transform_matrix = frames[0].transform_matrix
 
         self.pointcloud = stack_pointclouds([frame.pointcloud for frame in frames])
+        self.precompute_downscaled_pointcloud()
+
+    def precompute_downscaled_pointcloud(self):
+        voxel_size = 0.1
+        pcd_down = self.pointcloud.as_open3d_tensor().voxel_down_sample(voxel_size)
+        pcd_down.estimate_normals(
+            o3d.geometry.KDTreeSearchParamHybrid(radius=voxel_size * 2.0,
+                                                max_nn=30))
+        pcd_fpfh = o3d.pipelines.registration.compute_fpfh_feature(
+            pcd_down,
+            o3d.geometry.KDTreeSearchParamHybrid(radius=voxel_size * 5.0,
+                                                max_nn=100))
+
+        self.downscaled_pcd = pcd_down
+        self.downscaled_fpfh = pcd_fpfh
 
     def get_all_frame_transforms(self) -> List[np.ndarray]:
         """Uses original transforms and ICP to compute transforms for all frames in group."""
