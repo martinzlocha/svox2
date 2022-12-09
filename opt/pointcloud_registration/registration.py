@@ -83,32 +83,15 @@ def pairwise_registration(source, target, trans_init, cfg: RegistrationConfig, e
     def iteration_callback(data: Dict):
         iteration_data.append(data)
 
-    # criteria_list = [
-    #         treg.ICPConvergenceCriteria(relative_fitness=0.001,
-    #                                     relative_rmse=0.001,
-    #                                     max_iteration=50),
-    #         treg.ICPConvergenceCriteria(0.0001, 0.0001, 50),
-    #         treg.ICPConvergenceCriteria(0.00001, 0.00001, 30),
-    #         treg.ICPConvergenceCriteria(0.000001, 0.000001, 20),
-    #         treg.ICPConvergenceCriteria(0.000001, 0.000001, 10)
-    #     ]
-
     if edge_type == "odometry":
         criteria_list = cfg.convergence_criteria.get_criteria()
     elif edge_type == "loop":
         criteria_list = cfg.convergence_criteria_loop.get_criteria()
     else:
         raise ValueError(f"Unknown edge type {edge_type}")
-    # voxel_sizes = o3d.utility.DoubleVector([0.1, 0.07, 0.03, 0.008, 0.003])
-    # max_correspondence_distances = o3d.utility.DoubleVector([0.3, 0.1, 0.07, 0.024, 0.01])
     voxel_sizes = cfg.voxel_sizes.get_o3d_vector()
     max_correspondence_distances = cfg.max_correspondence_distances.get_o3d_vector()
 
-
-    # mu, sigma = 0, 0.5  # mean and standard deviation
-    # estimation = treg.TransformationEstimationPointToPlane(
-    #     treg.robust_kernel.RobustKernel(
-    #     treg.robust_kernel.RobustKernelMethod.TukeyLoss, sigma))
     estimation = cfg.estimation.get_method()
 
     try:
