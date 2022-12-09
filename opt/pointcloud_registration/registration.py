@@ -542,11 +542,12 @@ def run_full_icp(dataset_dir: str,
 
     print("Done optimizing pose graph")
 
+    # TODO: no need to first save the matrix in parent frame just to read it in the next loop
     # for parent_frame, node in zip(frame_data, pose_graph.nodes):
     for i in range(len(fragment_data)):
         parent_frame = fragment_data[i]
         node = pose_graph.nodes[i]
-        parent_frame.transform_matrix = node.pose @ parent_frame.transform_matrix
+        parent_frame.transform_matrix = node.pose
 
     new_transforms: List[Dict] = []
     print("Constructing new transforms...")
