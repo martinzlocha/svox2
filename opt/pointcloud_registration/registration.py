@@ -78,7 +78,7 @@ class EdgeCandidate:
     edge_type: Literal["loop", "odometry"]
 
 
-def pairwise_registration(source, target, trans_init, cfg: RegistrationConfig):
+def pairwise_registration(source, target, trans_init, cfg: RegistrationConfig, edge_type: Literal["loop", "odometry"]):
     iteration_data = []
     def iteration_callback(data: Dict):
         iteration_data.append(data)
@@ -93,7 +93,12 @@ def pairwise_registration(source, target, trans_init, cfg: RegistrationConfig):
     #         treg.ICPConvergenceCriteria(0.000001, 0.000001, 10)
     #     ]
 
-    criteria_list = cfg.convergence_criteria.get_criteria()
+    if edge_type == "odometry":
+        criteria_list = cfg.convergence_criteria.get_criteria()
+    elif edge_type == "loop":
+        criteria_list = cfg.convergence_criteria_loop.get_criteria()
+    else:
+        raise ValueError(f"Unknown edge type {edge_type}")
     # voxel_sizes = o3d.utility.DoubleVector([0.1, 0.07, 0.03, 0.008, 0.003])
     # max_correspondence_distances = o3d.utility.DoubleVector([0.3, 0.1, 0.07, 0.024, 0.01])
     voxel_sizes = cfg.voxel_sizes.get_o3d_vector()
@@ -266,7 +271,7 @@ def register_pointclouds(fragment_data: List[ParentFrame], edge_candidate: EdgeC
         transformation_icp, information_icp, iteration_data = None, None, None  # silencing linter
         for _ in range(10):
             # TODO add to config
-            transformation_icp, information_icp, iteration_data = pairwise_registration(source_pcd, target_pcd, init_transform, cfg)
+            transformation_icp, information_icp, iteration_data = pairwise_registration(source_pcd, target_pcd, init_transform, cfg, edge_candidate.edge_type)
             if edge_candidate.edge_type == "loop" or (transformation_icp is not None and information_icp is not None and iteration_data is not None):
                 break
 
@@ -282,7 +287,7 @@ def register_pointclouds_bare(source_pcd: o3d.t.geometry.PointCloud, target_pcd:
     if edge_type == "odometry":
         raise NotImplementedError("Bare odometry registration is not implemented yet")
 
-    transformation_icp, information_icp, iteration_data = pairwise_registration(source_pcd, target_pcd, init_transform, cfg)
+    transformation_icp, information_icp, iteration_data = pairwise_registration(source_pcd, target_pcd, init_transform, cfg, edge_type)
     if transformation_icp is None or information_icp is None or iteration_data is None:
             return None
 
@@ -291,21 +296,20 @@ def register_pointclouds_bare(source_pcd: o3d.t.geometry.PointCloud, target_pcd:
     return registration_result
 
 def register_loop_candidates(fragment_data: List[ParentFrame],
-                                      edge_candidates: List[EdgeCandidate],
-                                      cfg: RegistrationConfig) -> Tuple[List[Optional[RegistrationResult]], List[PairwiseRegistrationLog]]:
+                             edge_candidates: List[EdgeCandidate],
+                             cfg: RegistrationConfig) -> Tuple[List[Optional[RegistrationResult]], List[PairwiseRegistrationLog]]:
     all_args = [
         [fragment_data[edge_candidate.source_id].pointcloud.as_open3d_tensor(estimate_normals=True, device=device),
         fragment_data[edge_candidate.target_id].pointcloud.as_open3d_tensor(estimate_normals=True, device=device),
         np.eye(4), "loop", cfg] for edge_candidate in edge_candidates
     ]
 
-    if device == o3d.core.Device("CPU:0"):
-        # if we are on CPU, we probably don't want to paralelise
-        registration_results = [register_pointclouds_bare(*args) for args in tqdm(all_args, desc="loop")]
-    else:
+    if cfg.parallel_registration:
         n_cpus = multiprocessing.cpu_count()
-        registration_results = Parallel(n_jobs=n_cpus, verbose=1)(
+        registration_results = Parallel(n_jobs=n_cpus, verbose=51)(
             delayed(register_pointclouds_bare)(*args) for args in all_args)
+    else:
+        registration_results = [register_pointclouds_bare(*args) for args in tqdm(all_args, desc="loop")]
 
     assert registration_results is not None
 

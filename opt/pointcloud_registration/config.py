@@ -110,19 +110,28 @@ class RegistrationConfig:
     register_odometry_edges: bool
     estimation: Estimation
     convergence_criteria: ConvergenceCriteria
+    convergence_criteria_loop: ConvergenceCriteria
     voxel_sizes: DoubleVector
     max_correspondence_distances: DoubleVector
     rolling_odometry_init: bool
+    parallel_registration: bool
 
     @classmethod
     def from_dict(cls, config_data: Dict) -> "RegistrationConfig":
+        convergence_criteria = ConvergenceCriteria.from_dict(config_data["convergence_criteria"])
+        if "convergence_criteria_loop" in config_data:
+            convergence_criteria_loop = ConvergenceCriteria.from_dict(config_data["convergence_criteria_loop"])
+        else:
+            convergence_criteria_loop = convergence_criteria
         return cls(
             config_data["register_odometry_edges"],
             Estimation.from_dict(config_data["estimation"]),
-            ConvergenceCriteria.from_dict(config_data["convergence_criteria"]),
+            convergence_criteria,
+            convergence_criteria_loop,
             DoubleVector(config_data["voxel_sizes"]),
             DoubleVector(config_data["max_correspondence_distances"]),
             config_data["rolling_odometry_init"],
+            config_data["parallel_registration"],
         )
 
     def last_correspondence_distance(self):
