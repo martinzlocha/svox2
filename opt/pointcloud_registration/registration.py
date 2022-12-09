@@ -143,7 +143,7 @@ def iou_overlaps(pcd1: Pointcloud,
     bounding_box1 = pcd1.get_axis_aligned_bounding_box()
     bounding_box2 = pcd2.get_axis_aligned_bounding_box()
     iou, aabb1_intersection_ratio, aabb2_intersection_ratio = aabb_intersection_ratios_open3d(bounding_box1, bounding_box2)
-    loop_should_be_closed = iou > iou_threshold or aabb1_intersection_ratio > iou_threshold or aabb2_intersection_ratio > iou_threshold
+    loop_should_be_closed = iou > iou_threshold
     return loop_should_be_closed
 
 
@@ -328,6 +328,8 @@ def register_candidates(fragment_data: List[ParentFrame],
     odometry_init = np.eye(4)
     odometry_candidates = [edge_candidate for edge_candidate in edge_candidates if edge_candidate.edge_type == "odometry"]
     loop_candidates = [edge_candidate for edge_candidate in edge_candidates if edge_candidate.edge_type == "loop"]
+
+    print(f"There are {len(odometry_candidates)} odometry candidates and {len(loop_candidates)} loop candidates")
 
     for edge_candidate in tqdm(odometry_candidates, desc="odometry"):
         registration_result = register_pointclouds(fragment_data, edge_candidate, odometry_init, cfg)
