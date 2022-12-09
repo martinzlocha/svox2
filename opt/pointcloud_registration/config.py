@@ -26,6 +26,7 @@ class EdgeCandidatesConfig:
     no_loop_closure_within_frames: int
     use_iou: bool
     iou_threshold: float
+    fpfh_registration_type: Literal["fgr", "ransac"]
 
     @classmethod
     def from_dict(cls, config_data: Dict) -> "EdgeCandidatesConfig":

@@ -1,3 +1,4 @@
+import copy
 import multiprocessing
 import time
 from dataclasses import dataclass
@@ -76,6 +77,7 @@ class EdgeCandidate:
     source_id: int
     target_id: int
     edge_type: Literal["loop", "odometry"]
+    init_transform_hint: Optional[np.ndarray] = None
 
 
 def pairwise_registration(source, target, trans_init, cfg: RegistrationConfig, edge_type: Literal["loop", "odometry"]):
@@ -175,6 +177,64 @@ def fragments_covisible(source: ParentFrame,
                                                  top_match_count)
     return distance < threshold
 
+
+def register_fragmets_fgr(fragment_data: List[ParentFrame], source_id: int, target_id: int, cfg: EdgeCandidatesConfig) -> Tuple[bool, np.ndarray]:
+    distance_threshold = 1.2
+    source = fragment_data[source_id].downscaled_pcd
+    target = fragment_data[target_id].downscaled_pcd
+    source_fpfh = fragment_data[source_id].downscaled_fpfh
+    target_fpfh = fragment_data[target_id].downscaled_fpfh
+    result = o3d.pipelines.registration.registration_fgr_based_on_feature_matching(
+        source, target, source_fpfh, target_fpfh,
+        o3d.pipelines.registration.FastGlobalRegistrationOption(
+            maximum_correspondence_distance=distance_threshold
+        )
+    )
+
+    information = o3d.pipelines.registration.get_information_matrix_from_point_clouds(
+        source, target, distance_threshold, result.transformation)
+
+    # TODO: Do more checks. If the rotation is too big, the registration is probably wrong.
+
+    if information[5, 5] / min(len(source.points), len(target.points)) < 0.3:
+        return (False, np.identity(4))
+
+    return (True, result.transformation)
+
+def register_fragments_ransac(fragment_data: List[ParentFrame], source_id: int, target_id: int, cfg: EdgeCandidatesConfig) -> Tuple[bool, np.ndarray]:
+    raise NotImplementedError("RANSAC registration is not implemented yet")
+
+
+def register_fpfh_fragments(fragment_data: List[ParentFrame], source_id: int, target_id: int, cfg: EdgeCandidatesConfig) -> Tuple[bool, np.ndarray]:
+    if cfg.fpfh_registration_type == "fgr":
+        return register_fragmets_fgr(fragment_data, source_id, target_id, cfg)
+    elif cfg.fpfh_registration_type == "ransac":
+        return register_fragments_ransac(fragment_data, source_id, target_id, cfg)
+    else:
+        raise ValueError(f"Unknown fpfh registration type {cfg.fpfh_registration_type}")
+
+
+def build_odometry_edge_candidates(fragment_data: List[ParentFrame], cfg: EdgeCandidatesConfig) -> List[EdgeCandidate]:
+    edge_candidates = []
+    for source_id in trange(len(fragment_data) - 1, desc="Odometry candidates"):
+        edge_candidates.append(EdgeCandidate(source_id, source_id+1, "odometry"))
+    return edge_candidates
+
+def build_loop_edge_candidates(fragment_data: List[ParentFrame], cfg: EdgeCandidatesConfig) -> List[EdgeCandidate]:
+    edge_candidates = []
+    for source_id in trange(len(fragment_data) - 1, desc="Loop candidates"):
+        for target_id in range(source_id + 1, len(fragment_data)):
+            success, transform = register_fpfh_fragments(fragment_data, source_id, target_id, cfg)
+            if success:
+                edge_candidates.append(EdgeCandidate(source_id, target_id, "loop", transform))
+
+    return edge_candidates
+
+def build_edge_candidates_alternative(fragment_data: List[ParentFrame], cfg: EdgeCandidatesConfig) -> List[EdgeCandidate]:
+    odometry_candidates = build_odometry_edge_candidates(fragment_data, cfg)
+    loop_candidates = build_loop_edge_candidates(fragment_data, cfg)
+
+    return odometry_candidates + loop_candidates
 
 def build_edge_candidates(fragment_data: List[ParentFrame],
                           cfg: EdgeCandidatesConfig) -> List[EdgeCandidate]:
@@ -421,6 +481,7 @@ def run_full_icp(dataset_dir: str,
         if config.use_only_max_confidence_pointcloud:
             fragment.pointcloud = fragment.pointcloud.take_only_with_max_confidence()  # confidence pruning
         fragment.pointcloud.as_open3d_tensor(estimate_normals=True, device=device)
+        fragment.precompute_downscaled_pointcloud()
 
     with Parallel(n_jobs=n_cpus//2, verbose=1, require='sharedmem') as parallel:
         # paralel execution will most probably help only on a machine with GPU
@@ -487,21 +548,20 @@ def run_full_icp(dataset_dir: str,
         node = pose_graph.nodes[i]
         parent_frame.transform_matrix = node.pose @ parent_frame.transform_matrix
 
-    print("Optimizing local transformations...")
-    # Get sequential transforms in parallel
-    # with Pool(thread_pool_size) as p:
-    new_transforms = list(tqdm(map(unpack_parent_frame, fragment_data), total=len(fragment_data)))
-    new_transforms = itertools.chain(*new_transforms)
+    new_transforms: List[Dict] = []
+    print("Constructing new transforms...")
+    for fragment in fragment_data:
+        for frame in fragment.frames:
+            frame.transform_(fragment.transform_matrix)
+            new_transforms.append(frame.get_frame_data_dict())
 
-    print("Writing results ...")
+    new_json_data = copy.deepcopy(json_data)
+    new_json_data["frames"] = new_transforms
+
+    print("Writing results...")
     transforms_train_shifted = os.path.join(save_dir, json_file_name)
     with open(transforms_train_shifted, 'w') as f:
-        for i, (transform, json_frame) in enumerate(zip(new_transforms, json_data['frames'])):
-            json_frame['transform_matrix'] = transform.tolist()
-
-        if max_fragments is not None:
-            json_data['frames'] = json_data['frames'][:max_fragments]  # debug
-        json.dump(json_data, f, indent=4)
+        json.dump(new_json_data, f, indent=4)
 
 def get_transformation_mat(source, target, steps=200):
     R = torch.nn.Parameter(torch.eye(3))
