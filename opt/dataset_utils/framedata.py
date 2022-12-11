@@ -78,9 +78,9 @@ class ParentFrame:
 
     def precompute_downscaled_pointcloud(self):
         voxel_size = 0.1
-        pcd_down = self.pointcloud.as_open3d_tensor(device=device).voxel_down_sample(voxel_size)
-        pcd_down.estimate_normals(max_nn=30, radius=1.4*voxel_size)
-        pcd_fpfh = o3d.t.pipelines.registration.compute_fpfh_feature(pcd_down, radius=voxel_size * 5.0, max_nn=100)
+        pcd_down = self.pointcloud.as_open3d().voxel_down_sample(voxel_size)
+        pcd_down.estimate_normals(o3d.geometry.KDTreeSearchParamHybrid(radius=voxel_size * 2.0, max_nn=30))
+        pcd_fpfh = o3d.pipelines.registration.compute_fpfh_feature(pcd_down, o3d.geometry.KDTreeSearchParamHybrid(radius=voxel_size * 5.0, max_nn=100))
 
         self.downscaled_pcd = pcd_down
         self.downscaled_fpfh = pcd_fpfh
@@ -88,6 +88,7 @@ class ParentFrame:
     def get_all_frame_transforms(self) -> List[np.ndarray]:
         """Uses original transforms and ICP to compute transforms for all frames in group."""
 
+        raise NotImplemented("Please do not call")
         criteria_list = [
             treg.ICPConvergenceCriteria(relative_fitness=0.001,
                                         relative_rmse=0.001,

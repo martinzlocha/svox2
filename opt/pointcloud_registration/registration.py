@@ -482,7 +482,7 @@ def run_full_icp(dataset_dir: str,
         if config.use_only_max_confidence_pointcloud:
             fragment.pointcloud = fragment.pointcloud.take_only_with_max_confidence()  # confidence pruning
         fragment.pointcloud.as_open3d_tensor(estimate_normals=True, device=device)
-        fragment.precompute_downscaled_pointcloud()
+        # fragment.precompute_downscaled_pointcloud()
 
     with Parallel(n_jobs=n_cpus//2, verbose=1, require='sharedmem') as parallel:
         # paralel execution will most probably help only on a machine with GPU
@@ -496,7 +496,7 @@ def run_full_icp(dataset_dir: str,
     # time build_edge_candidates
     print("building edge candidates...")
     tic = time.time()
-    edge_candidates = build_edge_candidates(fragment_data, config.edge_candidates)
+    edge_candidates = build_edge_candidates_alternative(fragment_data, config.edge_candidates)
     toc = time.time()
     print(f'build_edge_candidates took {toc-tic:.2f}s')
 
