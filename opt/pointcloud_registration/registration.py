@@ -344,7 +344,8 @@ def register_loop_candidates(fragment_data: List[ParentFrame],
     all_args = [
         [fragment_data[edge_candidate.source_id].pointcloud.as_open3d_tensor(estimate_normals=True, device=device),
         fragment_data[edge_candidate.target_id].pointcloud.as_open3d_tensor(estimate_normals=True, device=device),
-        np.eye(4), "loop", cfg] for edge_candidate in edge_candidates
+        edge_candidate.init_transform_hint if edge_candidate.init_transform_hint is not None else np.eye(4),
+        "loop", cfg] for edge_candidate in edge_candidates
     ]
 
     if cfg.parallel_registration:
