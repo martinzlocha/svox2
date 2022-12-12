@@ -77,10 +77,10 @@ class ParentFrame:
         self.precompute_downscaled_pointcloud()
 
     def precompute_downscaled_pointcloud(self):
-        voxel_size = 0.1
+        voxel_size = 0.15
         pcd_down = self.pointcloud.as_open3d().voxel_down_sample(voxel_size)
-        pcd_down.estimate_normals(o3d.geometry.KDTreeSearchParamHybrid(radius=voxel_size * 2.0, max_nn=30))
-        pcd_fpfh = o3d.pipelines.registration.compute_fpfh_feature(pcd_down, o3d.geometry.KDTreeSearchParamHybrid(radius=voxel_size * 5.0, max_nn=100))
+        pcd_down.estimate_normals(o3d.geometry.KDTreeSearchParamHybrid(radius=voxel_size * 4.0, max_nn=50))
+        pcd_fpfh = o3d.pipelines.registration.compute_fpfh_feature(pcd_down, o3d.geometry.KDTreeSearchParamHybrid(radius=voxel_size * 3.0, max_nn=200))
 
         self.downscaled_pcd = pcd_down
         self.downscaled_fpfh = pcd_fpfh
