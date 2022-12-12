@@ -69,12 +69,13 @@ class FrameData:
         self.pointcloud.transform_(transform_matrix)
 
 class ParentFrame:
-    def __init__(self, frames: List[FrameData]):
+    def __init__(self, frames: List[FrameData], precompute_downscaled_pointcloud: bool = True):
         self.frames = frames
         self.transform_matrix = frames[0].transform_matrix
 
         self.pointcloud = stack_pointclouds([frame.pointcloud for frame in frames])
-        self.precompute_downscaled_pointcloud()
+        if precompute_downscaled_pointcloud:
+            self.precompute_downscaled_pointcloud()
 
     def precompute_downscaled_pointcloud(self):
         voxel_size = 0.15
@@ -136,7 +137,7 @@ class ParentFrame:
         parent_frames = []
         for frame_id in data["frame_ids"]:
             parent_frames.append(frames[frame_id])
-        parent_frame = cls(parent_frames)
+        parent_frame = cls(parent_frames, precompute_downscaled_pointcloud=False)
         parent_frame.transform_matrix = np.array(data["transform_matrix"])
         return parent_frame
 
