@@ -142,7 +142,7 @@ def unpack_parent_frame(parent_frame: ParentFrame) -> List[np.ndarray]:
 
 def cluster_frame_data(frames: List[FrameData],
                        cfg: FrameClusteringConfig) -> List[ParentFrame]:
-    return [ParentFrame(frames[i:i + cfg.frames_per_cluster]) for i in range(0, len(frames), cfg.frames_per_cluster)]
+    return [ParentFrame(frames[i:i + cfg.frames_per_cluster]) for i in trange(0, len(frames), cfg.frames_per_cluster)]
 
 
 def _load_transforms_json(dataset_dir: str, json_file_name: str) -> Dict[str, Any]:
@@ -179,17 +179,29 @@ def fragments_covisible(source: ParentFrame,
 
 
 def register_fragmets_fgr(fragment_data: List[ParentFrame], source_id: int, target_id: int, cfg: EdgeCandidatesConfig) -> Tuple[bool, np.ndarray]:
-    distance_threshold = 1.2
+    distance_threshold = 0.35
     source = fragment_data[source_id].downscaled_pcd
     target = fragment_data[target_id].downscaled_pcd
     source_fpfh = fragment_data[source_id].downscaled_fpfh
     target_fpfh = fragment_data[target_id].downscaled_fpfh
-    result = o3d.pipelines.registration.registration_fgr_based_on_feature_matching(
-        source, target, source_fpfh, target_fpfh,
-        o3d.pipelines.registration.FastGlobalRegistrationOption(
-            maximum_correspondence_distance=distance_threshold
+    try:
+        tic = time.time()
+        result = o3d.pipelines.registration.registration_fgr_based_on_feature_matching(
+            source, target, source_fpfh, target_fpfh,
+            o3d.pipelines.registration.FastGlobalRegistrationOption(
+                maximum_correspondence_distance=distance_threshold,
+                use_absolute_scale=True
+            )
         )
-    )
+        toc = time.time()
+        # print(f"Registration took {toc - tic:.2f} seconds.")
+    except RuntimeError as e:
+        print(e)
+        return (False, np.identity(4))
+
+    translation = result.transformation[:3, 3]
+    if np.linalg.norm(translation) > distance_threshold:
+        return (False, np.identity(4))
 
     information = o3d.pipelines.registration.get_information_matrix_from_point_clouds(
         source, target, distance_threshold, result.transformation)
@@ -350,7 +362,7 @@ def register_loop_candidates(fragment_data: List[ParentFrame],
 
     if cfg.parallel_registration:
         n_cpus = multiprocessing.cpu_count()
-        registration_results = Parallel(n_jobs=n_cpus, verbose=51)(
+        registration_results = Parallel(n_jobs=max(n_cpus, 10), verbose=51)(
             delayed(register_pointclouds_bare)(*args) for args in all_args)
     else:
         registration_results = [register_pointclouds_bare(*args) for args in tqdm(all_args, desc="loop")]
@@ -455,7 +467,10 @@ def run_full_icp(dataset_dir: str,
     else:
         frame_data = load_frame_data_from_dataset(dataset_dir, transforms_train)
     print("clustering frames...")
+    tic = time.time()
     fragment_data = cluster_frame_data(frame_data, config.frame_clustering)
+    toc = time.time()
+    print(f"clustering frames took {toc-tic:.2f}s")
 
     if config.edge_candidates.use_covisibility:
         tic = time.time()
