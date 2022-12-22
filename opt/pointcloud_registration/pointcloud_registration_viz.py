@@ -121,8 +121,16 @@ def main(dataset_dir: str):
     json_file_name = data["transforms_json_file"]
     frames_dict = load_frames_dict(dataset_dir, json_file_name)
 
-    with ThreadPoolExecutor() as executor:
-        pairwise_registrations = list(tqdm(executor.map(lambda pfd: PairwiseRegistrationLog.from_dict(pfd, frames_dict), data["pairwise_registrations"])))
+    # with ThreadPoolExecutor() as executor:
+    #     pairwise_registrations = list(tqdm(executor.map(lambda pfd: PairwiseRegistrationLog.from_dict(pfd, frames_dict), data["pairwise_registrations"])))
+    pairwise_registrations = []
+    for pfd in tqdm(data["pairwise_registrations"]):
+        pairwise_registration_log = PairwiseRegistrationLog.from_dict(pfd, frames_dict)
+        pairwise_registration_log.source.pointcloud = pairwise_registration_log.source.pointcloud.take_only_with_max_confidence().prune(200000)
+        pairwise_registration_log.target.pointcloud = pairwise_registration_log.target.pointcloud.take_only_with_max_confidence().prune(200000)
+        pairwise_registrations.append(pairwise_registration_log)
+
+    # pairwise_registrations = list(tqdm(map(lambda pfd: PairwiseRegistrationLog.from_dict(pfd, frames_dict), data["pairwise_registrations"]), total=len(data["pairwise_registrations"])))
 
     gui.Application.instance.initialize()
     viz = RegistrationViz(pairwise_registrations)
