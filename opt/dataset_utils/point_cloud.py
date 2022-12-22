@@ -254,7 +254,7 @@ class Pointcloud:
         Useful for visualizing the pointcloud. Returns a pointcloud with at most n_points.
         """
 
-        print("Pruning pointcloud from {} to {}".format(self._points.shape[0], n_points))
+        # print("Pruning pointcloud from {} to {}".format(self._points.shape[0], n_points))
 
         if self._points.shape[0] <= n_points:
             return self
