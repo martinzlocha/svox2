@@ -149,7 +149,12 @@ def load_frame_data_from_dataset(dataset_dir: str,
     with open(os.path.join(dataset_dir, transforms_json_file), "r") as f:
         transforms = json.load(f)
 
-    camera_angle_x = transforms["camera_angle_x"]
+    if "camera_angle_x" in transforms:
+        camera_angle_x = transforms["camera_angle_x"]
+    elif "fl_x" in transforms and "w" in transforms:
+        camera_angle_x = np.arctan(transforms["fl_x"] / (2 * transforms["w"])) * 2
+    else:
+        raise ValueError("No camera angle or focal length found in transforms")
 
     frames = transforms["frames"]
 

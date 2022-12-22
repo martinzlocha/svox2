@@ -78,7 +78,7 @@ class VizApplication(AbstractViz):
                  dataset_dir: str,
                  grid_dir: Optional[str] = None):
         super().__init__()
-        potential_transforms_files = ["transforms_train.json", "transforms_test.json", "transforms_train_original.json", "transforms_test_original.json", "transforms_train_original_shifted.json"]
+        potential_transforms_files = ["transforms.json", "transforms_train.json", "transforms_test.json", "transforms_train_original.json", "transforms_test_original.json", "transforms_train_original_shifted.json"]
         transforms_files = [f for f in os.listdir(dataset_dir) if f in potential_transforms_files]
 
         self.transforms = {}
